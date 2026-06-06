@@ -11,6 +11,8 @@
   pi_pred,
   z_pred,
   save_tree_directory,
+  x_predict_variance = x_predict_control,
+  type = c("all", "mu", "tau", "sigma2"),
   log_file = file.path(".", sprintf("bcf_log_\%s.txt", format(Sys.time(),
     "\%Y\%m\%d_\%H\%M\%S"))),
   n_cores = 2,
@@ -31,6 +33,11 @@
 
 \item{save_tree_directory}{directory where the trees have been saved}
 
+\item{x_predict_variance}{matrix of covariates for the residual variance
+function in heteroscedastic fits}
+
+\item{type}{Which posterior prediction components to return}
+
 \item{log_file}{File to log progress}
 
 \item{n_cores}{An optional integer of the number of cores to run your MCMC chains on}
@@ -40,7 +47,10 @@
 \item{...}{additional arguments affecting the predictions produced.}
 }
 \value{
-A list with elements: tau (samples of treatment effects), mu (samples of predicted control outcomes), yhat (samples of predicted values), and coda_chains (coda objects for scalar summaries)
+A list with elements: tau (samples of treatment effects), mu (samples of
+predicted control outcomes), yhat (samples of predicted values), and
+coda_chains (coda objects for scalar summaries). Heteroscedastic fits also
+return sigma2 and sigma draws when type is "all" or "sigma2".
 }
 \description{
 This function takes in an existing BCF model fit and uses it to predict estimates for new data.

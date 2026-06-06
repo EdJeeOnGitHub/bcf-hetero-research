@@ -4,6 +4,8 @@
 #include <fstream>
 #include <vector>
 #include <ctime>
+#include <algorithm>
+#include <cstdio>
 
 #include "rng.h"
 #include "tree.h"
@@ -11,6 +13,7 @@
 #include "funs.h"
 #include "bd.h"
 #include "logging.h"
+#include "varfuns.h"
 
 using namespace Rcpp;
 // Rstudios check's suggest not ignoring these
@@ -25,6 +28,7 @@ using namespace Rcpp;
 //x_mod is the design matrix for b. It should have n = rows
 //data should come in sorted with all trt first, then control cases
 
+// [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
 List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
                   NumericVector x_con_, NumericVector x_mod_,
@@ -40,10 +44,19 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
                   double con_alpha, double con_beta,
                   double mod_alpha, double mod_beta,
                   CharacterVector treef_con_name_, CharacterVector treef_mod_name_,
+                  CharacterVector treef_var_name_,
                   int status_interval=100,
                   bool RJ= false, bool use_mscale=true, bool use_bscale=true, bool b_half_normal=true,
                   double trt_init = 1.0, bool verbose_sigma=false, 
-                  bool no_output=false)
+                  bool no_output=false,
+                  NumericVector x_var_ = NumericVector::create(),
+                  List x_var_info_list = List::create(),
+                  int ntree_var = 0,
+                  double var_lambda = 1.0,
+                  double var_nu = 10.0,
+                  double var_alpha = 0.95,
+                  double var_beta = 2.0,
+                  bool use_hetero = false)
 {
 
   bool randeff = true;
@@ -55,9 +68,11 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
 
   std::ofstream treef_con;
   std::ofstream treef_mod;
+  std::ofstream treef_var;
 
   std::string treef_con_name = as<std::string>(treef_con_name_);
   std::string treef_mod_name = as<std::string>(treef_mod_name_);
+  std::string treef_var_name = as<std::string>(treef_var_name_);
 
   if((not treef_con_name.empty()) && (not no_output)){
     Rcout << "Saving Trees to"  << std::endl;
@@ -66,6 +81,10 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
 
     treef_con.open(treef_con_name.c_str());
     treef_mod.open(treef_mod_name.c_str());
+    if(use_hetero && !treef_var_name.empty()) {
+      Rcout << treef_var_name << std::endl;
+      treef_var.open(treef_var_name.c_str());
+    }
   } else {  
     Rcout << "Not Saving Trees to file"  << std::endl;
   }
@@ -165,6 +184,33 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   for(size_t i=0; i<n; ++i) {
     if(z_[i]>0) ntrt += 1;
   }
+
+  /*****************************************************************************
+  /* Read, format X_var for scalar residual variance d(x)
+  *****************************************************************************/
+  std::vector<double> x_var;
+  size_t p_var = 0;
+  xinfo xi_var;
+  if(use_hetero) {
+    for(NumericVector::iterator it=x_var_.begin(); it!= x_var_.end(); ++it) {
+      x_var.push_back(*it);
+    }
+    if(x_var.size() == 0) stop("x_var must be supplied when use_hetero is TRUE");
+    p_var = x_var.size()/n;
+    if(p_var * n != x_var.size()) stop("x_var has incompatible dimensions");
+    if(ntree_var <= 0) stop("ntree_var must be positive when use_hetero is TRUE");
+    if(var_lambda <= 0.0) stop("var_lambda must be positive");
+    if(var_nu <= 0.0) stop("var_nu must be positive");
+
+    Rcout << "Using " << p_var << " residual variance covariates." << std::endl;
+    xi_var.resize(p_var);
+    for(size_t i=0; i<p_var; ++i) {
+      NumericVector tmp = x_var_info_list[i];
+      std::vector<double> tmp2;
+      for(size_t j=0; j<tmp.size(); ++j) tmp2.push_back(tmp[j]);
+      xi_var[i] = tmp2;
+    }
+  }
   std::vector<double> x_mod;
   for(NumericVector::iterator it=x_mod_.begin(); it!= x_mod_.end(); ++it) {
     x_mod.push_back(*it);
@@ -200,6 +246,12 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   std::vector<tree> t_con(ntree_con);
   for(size_t i=0;i<ntree_con;i++) t_con[i].setm(ybar/(double)ntree_con);
 
+  std::vector<tree> t_var(ntree_var);
+  if(use_hetero) {
+    double var_leaf_init = pow(var_lambda, 1.0 / (double) ntree_var);
+    for(size_t i=0;i<(size_t) ntree_var;i++) t_var[i].setm(var_leaf_init);
+  }
+
   //--------------------------------------------------
   //prior parameters
   // PX scale parameter for b:
@@ -233,6 +285,16 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
 
   double sigma = shat;
 
+  pinfo pi_var;
+  if(use_hetero) {
+    pi_var.pbd = 1.0;
+    pi_var.pb = 0.5;
+    pi_var.alpha = var_alpha;
+    pi_var.beta = var_beta;
+    pi_var.tau = 1.0;
+    pi_var.sigma = 1.0;
+  }
+
   // @Peter This is where dinfo is initialized
 
   //--------------------------------------------------
@@ -257,6 +319,20 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   di_mod.p=p_mod;
   di_mod.x = &x_mod[0];
   di_mod.y = r_mod; //the y for each draw will be the residual
+
+  double* sigma2_fit = new double[n];
+  double* r_var = new double[n];
+  double* ftemp_var = new double[n];
+  dinfo di_var;
+  if(use_hetero) {
+    for(size_t i=0;i<n;i++) sigma2_fit[i] = var_lambda;
+    di_var.n = n;
+    di_var.p = p_var;
+    di_var.x = &x_var[0];
+    di_var.y = r_var;
+  } else {
+    for(size_t i=0;i<n;i++) sigma2_fit[i] = sigma * sigma;
+  }
 
   //--------------------------------------------------
   //setup for random effects
@@ -300,6 +376,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   NumericMatrix m_post(nd,n);
   NumericMatrix yhat_post(nd,n);
   NumericMatrix b_post(nd,n);
+  NumericMatrix sigma2_post(nd,n);
   arma::mat gamma_post(nd,gamma.n_elem);
   arma::mat random_var_post(nd,random_var.n_elem);
 
@@ -321,6 +398,13 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     treef_mod << ntree_mod << endl;  //number of trees
     treef_mod << di_mod.p << endl;  //dimension of x's
     treef_mod << nd << endl;
+
+    if(use_hetero && !treef_var_name.empty()) {
+      treef_var << std::setprecision(save_tree_precision) << xi_var << endl;
+      treef_var << ntree_var << endl;
+      treef_var << di_var.p << endl;
+      treef_var << nd << endl;
+    }
   }
 
   //*****************************************************************************
@@ -356,9 +440,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     logger.setLevel(verbose_itr);
 
     logger.log("==============================================");
-    Rprintf(logBuff, "MCMC iteration: %d of %d Start", iIter + 1, nd*thin+burn);
+    std::snprintf(logBuff, sizeof(logBuff), "MCMC iteration: %d of %d Start", (int) iIter + 1, nd*thin+burn);
     logger.log(logBuff);
-    Rprintf(logBuff, "sigma %f, mscale %f, bscale0 %f, bscale1 %f",sigma, mscale, bscale0, bscale1);
+    std::snprintf(logBuff, sizeof(logBuff), "sigma %f, mscale %f, bscale0 %f, bscale1 %f",sigma, mscale, bscale0, bscale1);
     logger.log(logBuff);
     logger.log("==============================================");
     if (verbose_itr){
@@ -376,14 +460,17 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     }
 
     for (int k=0; k<n; ++k){
-      weight[k] = w[k]*mscale*mscale/(sigma * sigma); // for non-het case, weights need to be divided by sigma square to make it similar to phi
+      double obs_var = use_hetero ? sigma2_fit[k] : sigma * sigma;
+      weight[k] = w[k]*mscale*mscale/obs_var; // precision for the control-tree residual
     }
 
     for(size_t k=0; k<ntrt; ++k) {
-      weight_het[k] = w[k]*bscale1*bscale1/(sigma*sigma);
+      double obs_var = use_hetero ? sigma2_fit[k] : sigma * sigma;
+      weight_het[k] = w[k]*bscale1*bscale1/obs_var;
     }
     for(size_t k=ntrt; k<n; ++k) {
-      weight_het[k] = w[k]*bscale0*bscale0/(sigma*sigma);
+      double obs_var = use_hetero ? sigma2_fit[k] : sigma * sigma;
+      weight_het[k] = w[k]*bscale0*bscale0/obs_var;
     }
 
     logger.log("=====================================");
@@ -394,7 +481,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     for(size_t iTreeCon=0;iTreeCon<ntree_con;iTreeCon++) {
 
       logger.log("==================================");
-      Rprintf(logBuff, "Updating Control Tree: %d of %d",iTreeCon + 1 , ntree_con);
+      std::snprintf(logBuff, sizeof(logBuff), "Updating Control Tree: %d of %d", (int) iTreeCon + 1, ntree_con);
       logger.log(logBuff);
       logger.log("==================================");
       logger.startContext();
@@ -524,7 +611,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
 
     for(size_t iTreeMod=0;iTreeMod<ntree_mod;iTreeMod++) {
       logger.log("==================================");
-      Rprintf(logBuff, "Updating Moderate Tree: %d of %d",iTreeMod + 1 , ntree_mod);
+      std::snprintf(logBuff, sizeof(logBuff), "Updating Moderate Tree: %d of %d", (int) iTreeMod + 1, ntree_mod);
       logger.log(logBuff);
       logger.log("==================================");
       logger.startContext();
@@ -648,10 +735,10 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     if(use_bscale) {
       double ww0 = 0.0, ww1 = 0.;
       double rw0 = 0.0, rw1 = 0.;
-      double s2 = sigma*sigma;
       for(size_t k=0; k<n; ++k) {
         double bscale = (k<ntrt) ? bscale1 : bscale0;
-        double scale_factor = (w[k]*allfit_mod[k]*allfit_mod[k])/(s2*bscale*bscale);
+        double obs_var = use_hetero ? sigma2_fit[k] : sigma * sigma;
+        double scale_factor = (w[k]*allfit_mod[k]*allfit_mod[k])/(obs_var*bscale*bscale);
 
         if(scale_factor!=scale_factor) {
           Rcout << " scale_factor " << scale_factor << endl;
@@ -745,9 +832,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
     if(use_mscale) {
       double ww = 0.;
       double rw = 0.;
-      double s2 = sigma*sigma;
       for(size_t k=0; k<n; ++k) {
-        double scale_factor = (w[k]*allfit_con[k]*allfit_con[k])/(s2*mscale*mscale);
+        double obs_var = use_hetero ? sigma2_fit[k] : sigma * sigma;
+        double scale_factor = (w[k]*allfit_con[k]*allfit_con[k])/(obs_var*mscale*mscale);
         if(scale_factor!=scale_factor) {
           Rcout << " scale_factor " << scale_factor << endl;
           stop("");
@@ -882,16 +969,39 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       }
     }
 
-    // ---------------------------------------------------------
-    logger.log("Draw Sigma");
-    // ---------------------------------------------------------
-    double rss = 0.0;
-    double restemp = 0.0;
-    for(size_t k=0;k<n;k++) {
-      restemp = y[k]-allfit[k];
-      rss += w[k]*restemp*restemp;
+    if(use_hetero) {
+      for(size_t iTreeVar=0; iTreeVar<(size_t) ntree_var; ++iTreeVar) {
+        fit(t_var[iTreeVar], xi_var, di_var, ftemp_var);
+        for(size_t k=0; k<n; ++k) {
+          sigma2_fit[k] = sigma2_fit[k] / ftemp_var[k];
+          double restemp = y[k] - allfit[k];
+          r_var[k] = std::max(1e-12, restemp * restemp / sigma2_fit[k]);
+        }
+        varbd(t_var[iTreeVar], xi_var, di_var, pi_var, var_nu, var_lambda, gen);
+        vardrmu(t_var[iTreeVar], xi_var, di_var, var_nu, var_lambda, gen);
+        fit(t_var[iTreeVar], xi_var, di_var, ftemp_var);
+        for(size_t k=0; k<n; ++k) {
+          sigma2_fit[k] *= ftemp_var[k];
+          if(!std::isfinite(sigma2_fit[k]) || sigma2_fit[k] <= 0.0) {
+            stop("nonpositive or non-finite sigma2_fit in heteroscedastic variance update");
+          }
+        }
+      }
+      double mean_sigma2 = 0.0;
+      for(size_t k=0; k<n; ++k) mean_sigma2 += sigma2_fit[k];
+      sigma = sqrt(mean_sigma2 / (double) n);
+    } else {
+      // ---------------------------------------------------------
+      logger.log("Draw Sigma");
+      // ---------------------------------------------------------
+      double rss = 0.0;
+      double restemp = 0.0;
+      for(size_t k=0;k<n;k++) {
+        restemp = y[k]-allfit[k];
+        rss += w[k]*restemp*restemp;
+      }
+      sigma = sqrt((nu*lambda + rss)/gen.chi_square(nu+n));
     }
-    sigma = sqrt((nu*lambda + rss)/gen.chi_square(nu+n));
     pi_con.sigma = sigma/fabs(mscale);
     pi_mod.sigma = sigma; // Is this another copy paste Error?
 
@@ -899,6 +1009,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       if(not treef_con_name.empty()){
         for(size_t j=0;j<ntree_con;j++) treef_con << std::setprecision(save_tree_precision) << t_con[j] << endl; // save trees
         for(size_t j=0;j<ntree_mod;j++) treef_mod << std::setprecision(save_tree_precision) << t_mod[j] << endl; // save trees
+        if(use_hetero && !treef_var_name.empty()) {
+          for(size_t j=0;j<(size_t) ntree_var;j++) treef_var << std::setprecision(save_tree_precision) << t_var[j] << endl;
+        }
       }
 
       msd_post(save_ctr) = mscale;
@@ -914,6 +1027,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       for(size_t k=0;k<n;k++) {
         m_post(save_ctr, k) = allfit_con[k];
         yhat_post(save_ctr, k) = allfit[k];
+        sigma2_post(save_ctr, k) = use_hetero ? sigma2_fit[k] : sigma * sigma;
       }
       for(size_t k=0;k<n;k++) {
         double bscale = (k<ntrt) ? bscale1 : bscale0;
@@ -923,9 +1037,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       save_ctr += 1;
     }
     logger.log("==============================================");
-    Rprintf(logBuff, "MCMC iteration: %d of %d End", iIter + 1, nd*thin+burn);
+    std::snprintf(logBuff, sizeof(logBuff), "MCMC iteration: %d of %d End", (int) iIter + 1, nd*thin+burn);
     logger.log(logBuff);
-    Rprintf(logBuff, "sigma %f, mscale %f, bscale0 %f, bscale1 %f",sigma, mscale, bscale0, bscale1);
+    std::snprintf(logBuff, sizeof(logBuff), "sigma %f, mscale %f, bscale0 %f, bscale1 %f",sigma, mscale, bscale0, bscale1);
     logger.log(logBuff);
     logger.log("==============================================");
     if (verbose_itr){
@@ -949,10 +1063,13 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
 
   Rcout << "time for loop: " << time2 - time1 << endl;
 
-  t_mod.clear(); t_con.clear();
+  t_mod.clear(); t_con.clear(); t_var.clear();
   delete[] allfit;
   delete[] allfit_mod;
   delete[] allfit_con;
+  delete[] sigma2_fit;
+  delete[] r_var;
+  delete[] ftemp_var;
   delete[] r_mod;
   delete[] r_con;
   delete[] ftemp;
@@ -960,9 +1077,11 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   if(not treef_con_name.empty()){
     treef_con.close();
     treef_mod.close();
+    if(use_hetero && !treef_var_name.empty()) treef_var.close();
   }
 
   return(List::create(_["yhat_post"] = yhat_post, _["m_post"] = m_post, _["b_post"] = b_post,
+                      _["sigma2_post"] = sigma2_post,
                       _["sigma"] = sigma_post, _["msd"] = msd_post, _["bsd"] = bsd_post, _["b0"] = b0_post, _["b1"] = b1_post,
                       _["gamma"] = gamma_post, _["random_var_post"] = random_var_post
   ));

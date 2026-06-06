@@ -37,11 +37,13 @@ Rcpp::loadModule(module = "TreeSamples", TRUE)
   if (is.null(tree_path) | no_output){
     out <- list(
                 "con_trees" = toString(character(0)), 
-                "mod_trees" = toString(character(0))
+                "mod_trees" = toString(character(0)),
+                "var_trees" = toString(character(0))
                 )
   } else{
     out <- list("con_trees" = paste0(tree_path,'/',"con_trees.", chain_id, ".txt"), 
-                "mod_trees" = paste0(tree_path,'/',"mod_trees.", chain_id, ".txt"))
+                "mod_trees" = paste0(tree_path,'/',"mod_trees.", chain_id, ".txt"),
+                "var_trees" = paste0(tree_path,'/',"var_trees.", chain_id, ".txt"))
   }
   return(out)
 }
@@ -69,6 +71,46 @@ Rcpp::loadModule(module = "TreeSamples", TRUE)
   if(do_type_config$n_cores>1){
     parallel::stopCluster(do_type_config$cluster)
   }
+}
+
+.parse_vartree <- function(vartree, yscale, x_variance) {
+  if (is.null(vartree)) vartree <- list()
+  num_trees <- if (is.null(vartree$num_trees)) 40L else as.integer(vartree$num_trees)
+  if (!is.finite(num_trees) || num_trees <= 0L) stop("vartree$num_trees must be positive")
+  nu <- if (is.null(vartree$nu)) 10.0 else as.numeric(vartree$nu)
+  if (!is.finite(nu) || nu <= 2) stop("vartree$nu must be finite and greater than 2")
+  lambda <- if (is.null(vartree$lambda)) stats::var(yscale) else as.numeric(vartree$lambda)
+  if (!is.finite(lambda) || lambda <= 0) lambda <- 1.0
+  inv_m <- 1 / num_trees
+  nu_tree <- 2 / (1 - (1 - 2 / nu)^inv_m)
+  lambda_tree <- lambda^inv_m
+  list(
+    num_trees = num_trees,
+    nu = nu,
+    lambda = lambda,
+    nu_tree = nu_tree,
+    lambda_tree = lambda_tree,
+    numcut = if (is.null(vartree$numcut)) 100L else as.integer(vartree$numcut),
+    base = if (is.null(vartree$base)) 0.95 else as.numeric(vartree$base),
+    power = if (is.null(vartree$power)) 2.0 else as.numeric(vartree$power),
+    sparse = if (is.null(vartree$sparse)) FALSE else isTRUE(vartree$sparse),
+    x_variance_ncol = ncol(x_variance)
+  )
+}
+
+.wtd_var <- function(x, w) {
+  w <- as.numeric(w)
+  x <- as.numeric(x)
+  sw <- sum(w)
+  if (!is.finite(sw) || sw <= 1) stop("weights must have sum greater than 1")
+  mu <- stats::weighted.mean(x, w)
+  sum(w * (x - mu)^2) / (sw - 1)
+}
+
+.cara_utility <- function(m, sigma2, alpha, exponent_bounds = c(-700, 700)) {
+  exponent <- -alpha * m + 0.5 * alpha^2 * sigma2
+  exponent <- pmin(pmax(exponent, exponent_bounds[1]), exponent_bounds[2])
+  -exp(exponent)
 }
 
 #' Fit Bayesian Causal Forests
@@ -238,7 +280,8 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                 save_tree_directory = '.',
                 log_file=file.path('.',sprintf('bcf_log_%s.txt',format(Sys.time(), "%Y%m%d_%H%M%S"))),
                 nu = 3, lambda = NULL, sigq = .9, sighat = NULL,
-                include_pi = "control", use_muscale=TRUE, use_tauscale=TRUE, verbose=TRUE
+                include_pi = "control", use_muscale=TRUE, use_tauscale=TRUE, verbose=TRUE,
+                x_variance = x_control, vartree = NULL, variance_model = "homoscedastic"
 ) {
 
   
@@ -252,6 +295,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
              length(w),
              nrow(x_control),
              nrow(x_moderate),
+             nrow(x_variance),
              nrow(pihat))
     ) {
     stop("Data size mismatch. The following should all be equal:
@@ -260,6 +304,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
          "length(w): ", length(w), "\n",
          "nrow(x_control): ", nrow(x_control), "\n",
          "nrow(x_moderate): ", nrow(x_moderate), "\n",
+         "nrow(x_variance): ", nrow(x_variance), "\n",
          "nrow(pihat): ", nrow(pihat),"\n"
     )
   }
@@ -269,14 +314,21 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   if(any(is.na(w))) stop("Missing values in w")
   if(any(is.na(x_control))) stop("Missing values in x_control")
   if(any(is.na(x_moderate))) stop("Missing values in x_moderate")
+  if(any(is.na(x_variance))) stop("Missing values in x_variance")
   if(any(is.na(pihat))) stop("Missing values in pihat")
   if(any(!is.finite(y))) stop("Non-numeric values in y")
   if(any(!is.finite(z))) stop("Non-numeric values in z")
   if(any(!is.finite(w))) stop("Non-numeric values in w")
   if(any(!is.finite(x_control))) stop("Non-numeric values in x_control")
   if(any(!is.finite(x_moderate))) stop("Non-numeric values in x_moderate")
+  if(any(!is.finite(x_variance))) stop("Non-numeric values in x_variance")
   if(any(!is.finite(pihat))) stop("Non-numeric values in pihat")
   if(!all(sort(unique(z)) == c(0,1))) stop("z must be a vector of 0's and 1's, with at least one of each")
+  if(!variance_model %in% c("homoscedastic", "shared")) {
+    stop("variance_model must be 'homoscedastic' or 'shared'")
+  }
+  use_hetero <- variance_model == "shared" || !is.null(vartree)
+  if(use_hetero) variance_model <- "shared"
 
   if(length(unique(y))<5) warning("y appears to be discrete")
 
@@ -292,6 +344,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   ###
   x_c = matrix(x_control, ncol=ncol(x_control))
   x_m = matrix(x_moderate, ncol=ncol(x_moderate))
+  x_v = matrix(x_variance, ncol=ncol(x_variance))
 
   if(include_pi=="both" | include_pi=="control") {
     x_c = cbind(x_control, pihat)
@@ -302,9 +355,11 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   cutpoint_list_c = lapply(1:ncol(x_c), function(i) .cp_quantile(x_c[,i]))
   cutpoint_list_m = lapply(1:ncol(x_m), function(i) .cp_quantile(x_m[,i]))
 
-  sdy = sqrt(Hmisc::wtd.var(y, w))
+  sdy = sqrt(.wtd_var(y, w))
   muy = stats::weighted.mean(y, w)
   yscale = (y-muy)/sdy
+  vartree_params <- .parse_vartree(vartree, yscale, x_v)
+  cutpoint_list_v = lapply(1:ncol(x_v), function(i) .cp_quantile(x_v[,i], num = vartree_params$numcut))
 
 
   if(is.null(lambda)) {
@@ -358,10 +413,19 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                                  con_beta = power_control,
                                  treef_con_name_ = tree_files$con_trees, 
                                  treef_mod_name_ = tree_files$mod_trees, 
+                                 treef_var_name_ = tree_files$var_trees,
                                  status_interval = update_interval,
                                  use_mscale = use_muscale, use_bscale = use_tauscale, 
                                  b_half_normal = TRUE, verbose_sigma=verbose, 
-                                 no_output=no_output)
+                                 no_output=no_output,
+                                 x_var_ = t(x_v[perm,,drop=FALSE]),
+                                 x_var_info_list = cutpoint_list_v,
+                                 ntree_var = vartree_params$num_trees,
+                                 var_lambda = vartree_params$lambda_tree,
+                                 var_nu = vartree_params$nu_tree,
+                                 var_alpha = vartree_params$base,
+                                 var_beta = vartree_params$power,
+                                 use_hetero = use_hetero)
     
     if(verbose) cat("bcfoverparRcppClean returned to R\n")
 
@@ -374,9 +438,11 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     tau_post = sdy*fitbcf$b_post[,order(perm)]
 
     mu_post  = muy + sdy*(Tc*fitbcf$msd + Tm*fitbcf$b0)
+    sigma2_post = sdy^2 * fitbcf$sigma2_post[,order(perm)]
     
     list(sigma = sdy*fitbcf$sigma,
          yhat = muy + sdy*fitbcf$yhat_post[,order(perm)],
+         sigma2 = sigma2_post,
          sdy = sdy,
          con_sd = con_sd,
          mod_sd = mod_sd,
@@ -389,6 +455,8 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
          b1 = fitbcf$b1,
          perm = perm,
          include_pi = include_pi,
+         variance_model = variance_model,
+         vartree = if (use_hetero) vartree_params else NULL,
          random_seed=this_seed, 
          has_file_output=!no_output
     )
@@ -406,6 +474,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   all_yhat = c()
   all_mu   = c()
   all_tau  = c()
+  all_sigma2 = c()
   
   chain_list=list()
 
@@ -422,6 +491,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     yhat             <- chain_out[[iChain]]$yhat
     tau              <- chain_out[[iChain]]$tau
     mu               <- chain_out[[iChain]]$mu
+    sigma2           <- chain_out[[iChain]]$sigma2
     has_file_output  <- chain_out[[iChain]]$has_file_output
 
     # -----------------------------    
@@ -436,6 +506,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     all_yhat = rbind(all_yhat, yhat)
     all_mu   = rbind(all_mu,   mu)
     all_tau  = rbind(all_tau,  tau)
+    all_sigma2 = rbind(all_sigma2, sigma2)
 
     # -----------------------------    
     # Make the MCMC Object
@@ -445,6 +516,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                             "tau_bar"   = matrixStats::rowWeightedMeans(tau, w),
                             "mu_bar"    = matrixStats::rowWeightedMeans(mu, w),
                             "yhat_bar"  = matrixStats::rowWeightedMeans(yhat, w),
+                            "sigma2_bar" = matrixStats::rowWeightedMeans(sigma2, w),
                             "mu_scale"  = mu_scale, 
                             # "tau_scale" = tau_scale,
                             "b0"  = b0, 
@@ -468,6 +540,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     if(chain_out[[iChain]]$mod_sd           != chain_out[[1]]$mod_sd)           stop("mod_sd not consistent between chains for no reason")
     if(chain_out[[iChain]]$muy              != chain_out[[1]]$muy)              stop("muy not consistent between chains for no reason")
     if(chain_out[[iChain]]$include_pi       != chain_out[[1]]$include_pi)       stop("include_pi not consistent between chains for no reason")
+    if(chain_out[[iChain]]$variance_model   != chain_out[[1]]$variance_model)   stop("variance_model not consistent between chains for no reason")
     if(any(chain_out[[iChain]]$perm         != chain_out[[1]]$perm))            stop("perm not consistent between chains for no reason")
     if(chain_out[[iChain]]$has_file_output  != chain_out[[1]]$has_file_output)  stop("has_file_output not consistent between chains for no reason")
   }
@@ -478,12 +551,15 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                  muy = chain_out[[1]]$muy,
                  mu  = all_mu,
                  tau = all_tau,
+                 sigma2 = all_sigma2,
                  mu_scale = all_mu_scale,
                  tau_scale = all_tau_scale,
                  b0 = all_b0,
                  b1 = all_b1,
                  perm = perm,
                  include_pi = chain_out[[1]]$include_pi,
+                 variance_model = chain_out[[1]]$variance_model,
+                 vartree = chain_out[[1]]$vartree,
                  random_seed = chain_out[[1]]$random_seed,
                  coda_chains = coda::as.mcmc.list(chain_list),
                  raw_chains = chain_out, 
@@ -494,6 +570,136 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   .cleanup_after_par(do_type_config)
   
   return(fitObj)
+}
+
+#' Fit Bayesian Causal Forests With Shared Heteroscedastic Residual Variance
+#'
+#' @inheritParams bcf
+#' @param x_variance Design matrix for the residual variance function.
+#' @param vartree List of scalar product-of-trees variance prior parameters.
+#' @param variance_model Currently only \code{"shared"} is implemented.
+#' @return A fitted \code{bcf_hetero} object with posterior draws \code{mu},
+#' \code{tau}, \code{sigma2}, and observation-level \code{sigma}.
+#' @export
+bcf_hetero <- function(y, z, x_control, x_moderate=x_control, pihat, ...,
+                       x_variance = x_control,
+                       vartree = list(num_trees = 40, nu = 10, lambda = NULL,
+                                      numcut = 100, sparse = FALSE),
+                       variance_model = "shared") {
+  if (variance_model != "shared") {
+    stop("Only variance_model = 'shared' is implemented")
+  }
+  fit <- bcf(y = y, z = z, x_control = x_control, x_moderate = x_moderate,
+             pihat = pihat, ..., x_variance = x_variance, vartree = vartree,
+             variance_model = variance_model)
+  fit$sigma_mean <- fit$sigma
+  fit$sigma <- sqrt(fit$sigma2)
+  attr(fit, "class") <- c("bcf_hetero", "bcf")
+  fit
+}
+
+#' Variance-Aware CARA Treatment Scores From Heteroscedastic BCF Draws
+#'
+#' @param fit A fitted object returned by \code{bcf_hetero()}.
+#' @param alpha Positive CARA risk-aversion parameter.
+#' @param exponent_bounds Numeric length-two bounds applied to the utility
+#' exponent before exponentiation to avoid overflow.
+#' @return A vector of posterior mean treatment scores, one per observation.
+#' @export
+bcf_hetero_cara_score <- function(fit, alpha, exponent_bounds = c(-700, 700)) {
+  if (is.null(fit$mu) || is.null(fit$tau) || is.null(fit$sigma2)) {
+    stop("fit must contain posterior draw matrices mu, tau, and sigma2")
+  }
+  if (!is.matrix(fit$mu) || !is.matrix(fit$tau) || !is.matrix(fit$sigma2)) {
+    stop("fit$mu, fit$tau, and fit$sigma2 must be matrices")
+  }
+  if (!identical(dim(fit$mu), dim(fit$tau)) || !identical(dim(fit$mu), dim(fit$sigma2))) {
+    stop("fit$mu, fit$tau, and fit$sigma2 must have identical dimensions")
+  }
+  if (length(alpha) != 1L || !is.finite(alpha) || alpha < 0) {
+    stop("alpha must be a single finite nonnegative value")
+  }
+  if (length(exponent_bounds) != 2L || any(!is.finite(exponent_bounds)) ||
+      exponent_bounds[1] >= exponent_bounds[2]) {
+    stop("exponent_bounds must be a finite increasing length-two vector")
+  }
+
+  treated_u <- .cara_utility(fit$mu + fit$tau, fit$sigma2, alpha, exponent_bounds)
+  control_u <- .cara_utility(fit$mu, fit$sigma2, alpha, exponent_bounds)
+  colMeans(treated_u - control_u)
+}
+
+#' Diagnostics for Heteroscedastic BCF Simulation Comparisons
+#'
+#' @param fit A fitted object returned by \code{bcf_hetero()}.
+#' @param fit_reference Optional fitted standard BCF object used for overlap and rank comparisons.
+#' @param true_sigma2 Optional vector of true residual variances.
+#' @param alpha Optional CARA risk-aversion parameter. If supplied, variance-aware scores are computed.
+#' @param top_k Optional number of observations selected for overlap/Jaccard comparisons.
+#' @param exponent_bounds Numeric length-two bounds used by \code{bcf_hetero_cara_score()}.
+#' @return A list of posterior summaries and optional diagnostics.
+#' @export
+bcf_hetero_diagnostics <- function(fit, fit_reference = NULL, true_sigma2 = NULL,
+                                   alpha = NULL, top_k = NULL,
+                                   exponent_bounds = c(-700, 700)) {
+  if (is.null(fit$sigma2) || !is.matrix(fit$sigma2)) {
+    stop("fit must be a heteroscedastic BCF fit with a sigma2 draw matrix")
+  }
+  n <- ncol(fit$sigma2)
+  sigma2_mean <- colMeans(fit$sigma2)
+
+  out <- list(
+    sigma2_mean = sigma2_mean,
+    mu_mean = if (!is.null(fit$mu)) colMeans(fit$mu) else NULL,
+    tau_mean = if (!is.null(fit$tau)) colMeans(fit$tau) else NULL
+  )
+
+  if (!is.null(true_sigma2)) {
+    if (length(true_sigma2) != n) stop("true_sigma2 must have length ncol(fit$sigma2)")
+    finite <- is.finite(true_sigma2) & is.finite(sigma2_mean)
+    out$sigma2_correlation <- if (sum(finite) >= 2) {
+      stats::cor(true_sigma2[finite], sigma2_mean[finite])
+    } else {
+      NA_real_
+    }
+  }
+
+  if (!is.null(alpha)) {
+    out$cara_score <- bcf_hetero_cara_score(fit, alpha, exponent_bounds)
+  }
+
+  if (!is.null(fit_reference)) {
+    if (is.null(fit_reference$tau) || !is.matrix(fit_reference$tau)) {
+      stop("fit_reference must contain a tau draw matrix")
+    }
+    if (ncol(fit_reference$tau) != n) {
+      stop("fit_reference$tau must have the same number of columns as fit$sigma2")
+    }
+    hetero_rank_score <- if (!is.null(out$cara_score)) out$cara_score else colMeans(fit$tau)
+    reference_rank_score <- colMeans(fit_reference$tau)
+    out$rank_correlation <- stats::cor(hetero_rank_score, reference_rank_score,
+                                       use = "pairwise.complete.obs")
+    out$rank_change <- rank(-hetero_rank_score, ties.method = "average") -
+      rank(-reference_rank_score, ties.method = "average")
+
+    if (!is.null(top_k)) {
+      top_k <- as.integer(top_k)
+      if (!is.finite(top_k) || top_k < 1L || top_k > n) {
+        stop("top_k must be an integer between 1 and ncol(fit$sigma2)")
+      }
+      hetero_top <- order(hetero_rank_score, decreasing = TRUE)[seq_len(top_k)]
+      reference_top <- order(reference_rank_score, decreasing = TRUE)[seq_len(top_k)]
+      intersection_n <- length(intersect(hetero_top, reference_top))
+      union_n <- length(union(hetero_top, reference_top))
+      out$top_k <- top_k
+      out$top_k_overlap <- intersection_n
+      out$top_k_jaccard <- intersection_n / union_n
+      out$top_k_hetero <- hetero_top
+      out$top_k_reference <- reference_top
+    }
+  }
+
+  out
 }
 
 #' Takes a fitted bcf object produced by bcf() and produces summary stats and MCMC diagnostics.
@@ -602,10 +808,12 @@ summary.bcf <- function(object,
 #' @param z_pred Treatment variable for predictions (optional except if x_pre is not empty)
 #' @param pi_pred propensity score for prediction
 #' @param save_tree_directory directory where the trees have been saved
+#' @param x_predict_variance matrix of covariates for the residual variance function in heteroscedastic fits
+#' @param type Which posterior prediction components to return
 #' @param log_file File to log progress
 #' @param n_cores An optional integer of the number of cores to run your MCMC chains on
 #' @param verbose Logical; set to FALSE to suppress extra output
-#' @return A list with elements: tau (samples of treatment effects), mu (samples of predicted control outcomes), yhat (samples of predicted values), and coda_chains (coda objects for scalar summaries)
+#' @return A list with elements: tau (samples of treatment effects), mu (samples of predicted control outcomes), yhat (samples of predicted values), and coda_chains (coda objects for scalar summaries). Heteroscedastic fits also return sigma2 and sigma draws when type is "all" or "sigma2".
 #' @examples
 #'\dontrun{
 #'
@@ -670,15 +878,20 @@ predict.bcf <- function(object,
                         pi_pred,
                         z_pred, 
                         save_tree_directory,
+                        x_predict_variance = x_predict_control,
+                        type = c("all", "mu", "tau", "sigma2"),
                         log_file=file.path('.',sprintf('bcf_log_%s.txt',format(Sys.time(), "%Y%m%d_%H%M%S"))),
                         n_cores=2, verbose = TRUE,
                         ...) {
+    type <- match.arg(type)
                         
     if(any(is.na(x_predict_moderate))) stop("Missing values in x_predict_moderate")
     if(any(is.na(x_predict_control))) stop("Missing values in x_predict_control")
+    if(any(is.na(x_predict_variance))) stop("Missing values in x_predict_variance")
     if(any(is.na(z_pred))) stop("Missing values in z_pred")
     if(any(!is.finite(x_predict_moderate))) stop("Non-numeric values in x_pred_moderate")
     if(any(!is.finite(x_predict_control))) stop("Non-numeric values in x_pred_control")
+    if(any(!is.finite(x_predict_variance))) stop("Non-numeric values in x_predict_variance")
     if(any(!is.finite(pi_pred))) stop("Non-numeric values in pi_pred")
     if(!all(sort(unique(z_pred)) == c(0,1))) stop("z_pred must be a vector of 0's and 1's, with at least one of each")
     if(!object$has_file_output) stop("No tree samples were serialized during sampling. To enable prediction, re-run bcf with no_output = FALSE \n")
@@ -691,12 +904,14 @@ predict.bcf <- function(object,
     if(!.ident(length(z_pred),
                 nrow(x_predict_moderate),
                 nrow(x_predict_control),
+                nrow(x_predict_variance),
                 nrow(pi_pred))
         ) {
         stop("Data size mismatch. The following should all be equal:
             length(z_pred): ", length(z_pred), "\n",
             "nrow(x_pred_moderate): ", nrow(x_predict_moderate), "\n",
             "nrow(x_pred_control): ", nrow(x_predict_control), "\n",
+            "nrow(x_predict_variance): ", nrow(x_predict_variance), "\n",
             "nrow(pi_pred): ", nrow(pi_pred), "\n"
         )
     }
@@ -704,6 +919,7 @@ predict.bcf <- function(object,
     message("Initializing BCF Prediction\n")
     x_pm = matrix(x_predict_moderate, ncol=ncol(x_predict_moderate))
     x_pc = matrix(x_predict_control, ncol=ncol(x_predict_control))
+    x_pv = matrix(x_predict_variance, ncol=ncol(x_predict_variance))
 
     if(object$include_pi=="both" | object$include_pi=="control") {
         x_pc = cbind(x_predict_control, pi_pred)
@@ -716,6 +932,8 @@ predict.bcf <- function(object,
     message("Starting Prediction \n")
 
     n_chains = length(object$coda_chains)
+    muy = object$muy
+    sdy = object$sdy
     
     do_type_config <- .get_do_type(n_cores, log_file=log_file)
     `%doType%` <- do_type_config$doType
@@ -733,22 +951,27 @@ predict.bcf <- function(object,
       cons = TreeSamples$new()
       cons$load(tree_files$con_trees)
       Tc = cons$predict(t(x_pc))
+
+      Sigma2 = NULL
+      if(identical(object$variance_model, "shared")) {
+        vars = TreeSamples$new()
+        vars$load(tree_files$var_trees)
+        Sigma2 = sdy^2 * vars$predict_prec(t(x_pv))
+      }
       
       
       list(Tm = Tm,
-           Tc = Tc)
+           Tc = Tc,
+           Sigma2 = Sigma2)
     }
     
     all_yhat = c()
     all_mu   = c()
     all_tau  = c()
+    all_sigma2 = c()
     
     chain_list=list()
 
-    muy = object$muy
-      
-    sdy = object$sdy
-    
     for (iChain in 1:n_chains){
       
       
@@ -777,6 +1000,9 @@ predict.bcf <- function(object,
         all_yhat = rbind(all_yhat, yhat)
         all_mu   = rbind(all_mu,   mu)
         all_tau  = rbind(all_tau,  tau)
+        if(identical(object$variance_model, "shared")) {
+          all_sigma2 = rbind(all_sigma2, chain_out[[iChain]]$Sigma2)
+        }
         
         
         
@@ -790,8 +1016,19 @@ predict.bcf <- function(object,
    .cleanup_after_par(do_type_config)
 
 
-    list(tau = all_tau,
-         mu = all_mu,
-         yhat = all_yhat,
-         coda_chains = coda::as.mcmc.list(chain_list))
+    out <- list(tau = all_tau,
+                mu = all_mu,
+                yhat = all_yhat,
+                coda_chains = coda::as.mcmc.list(chain_list))
+    if(identical(object$variance_model, "shared")) {
+      out$sigma2 <- all_sigma2
+      out$sigma <- sqrt(all_sigma2)
+    }
+    if(type == "mu") return(out["mu"])
+    if(type == "tau") return(out["tau"])
+    if(type == "sigma2") {
+      if(!identical(object$variance_model, "shared")) stop("type = 'sigma2' requires a heteroscedastic BCF fit")
+      return(out[c("sigma2", "sigma")])
+    }
+    out
 }

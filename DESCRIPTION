@@ -1,7 +1,7 @@
 Package: bcf
 Type: Package
 Title: Causal Inference using Bayesian Causal Forests
-Version: 2.0.2
+Version: 2.0.2.9001
 Date: 2024-02-23
 Authors@R: c(
     person("Jared S.", "Murray", , "jared.murray@mccombs.utexas.edu", c("aut", "cre")),
@@ -17,7 +17,7 @@ License: GPL-3
 LinkingTo: Rcpp, RcppArmadillo, RcppParallel
 NeedsCompilation: yes
 Repository: CRAN
-Imports: Rcpp, RcppParallel, coda (>= 0.19.3), Hmisc, parallel,
+Imports: Rcpp, RcppParallel, coda (>= 0.19.3), parallel,
         doParallel, foreach, matrixStats
 Suggests: testthat, spelling, knitr, rmarkdown, latex2exp, ggplot2,
         rpart, rpart.plot, partykit

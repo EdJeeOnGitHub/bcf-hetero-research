@@ -1,3 +1,9 @@
+# bcf 2.0.2.9001
+
+* Add `bcf_hetero()` for shared heteroscedastic residual variance using a scalar product-of-trees variance model.
+* Store posterior draws of observation-level `sigma2` and add variance-aware CARA scoring/diagnostics helpers.
+* Extend `predict.bcf()` to support variance prediction from saved heteroscedastic variance trees.
+
 # bcf 2.0.2
 
 ### CRAN fixes
