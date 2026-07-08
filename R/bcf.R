@@ -38,12 +38,14 @@ Rcpp::loadModule(module = "TreeSamples", TRUE)
     out <- list(
                 "con_trees" = toString(character(0)), 
                 "mod_trees" = toString(character(0)),
-                "var_trees" = toString(character(0))
+                "var_trees" = toString(character(0)),
+                "var_ratio_trees" = toString(character(0))
                 )
   } else{
     out <- list("con_trees" = paste0(tree_path,'/',"con_trees.", chain_id, ".txt"), 
                 "mod_trees" = paste0(tree_path,'/',"mod_trees.", chain_id, ".txt"),
-                "var_trees" = paste0(tree_path,'/',"var_trees.", chain_id, ".txt"))
+                "var_trees" = paste0(tree_path,'/',"var_trees.", chain_id, ".txt"),
+                "var_ratio_trees" = paste0(tree_path,'/',"var_ratio_trees.", chain_id, ".txt"))
   }
   return(out)
 }
@@ -324,11 +326,12 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   if(any(!is.finite(x_variance))) stop("Non-numeric values in x_variance")
   if(any(!is.finite(pihat))) stop("Non-numeric values in pihat")
   if(!all(sort(unique(z)) == c(0,1))) stop("z must be a vector of 0's and 1's, with at least one of each")
-  if(!variance_model %in% c("homoscedastic", "shared")) {
-    stop("variance_model must be 'homoscedastic' or 'shared'")
+  if(!variance_model %in% c("homoscedastic", "shared", "ratio")) {
+    stop("variance_model must be 'homoscedastic', 'shared', or 'ratio'")
   }
-  use_hetero <- variance_model == "shared" || !is.null(vartree)
-  if(use_hetero) variance_model <- "shared"
+  use_ratio <- variance_model == "ratio"
+  use_hetero <- variance_model %in% c("shared", "ratio") || !is.null(vartree)
+  if(use_hetero && variance_model == "homoscedastic") variance_model <- "shared"
 
   if(length(unique(y))<5) warning("y appears to be discrete")
 
@@ -378,8 +381,27 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   con_sd = ifelse(abs(2*sdy - sd_control)<1e-6, 2, sd_control/sdy)
   mod_sd = ifelse(abs(sdy - sd_moderate)<1e-6, 1, sd_moderate/sdy)/ifelse(use_tauscale,0.674,1) # if HN make sd_moderate the prior median
 
+  if (n_threads > 1) {
+    stop(
+      "n_threads > 1 is disabled: on this container RcppParallel/TBB does not ",
+      "respect the cgroup CPU quota (RcppParallel::defaultNumThreads() reports ",
+      "the host's raw core count, not the quota), and allsuff()/GetSuffBirthWorker/",
+      "GetSuffDeathWorker/FitWorker in funs.cpp invoke parallelFor/parallelReduce ",
+      "once per tree per MCMC step -- millions of tiny calls per fit. The result is ",
+      "not just unhelpful but actively pathological: measured ~5-7x slower wall time ",
+      "than n_threads=1, sys time approaching/exceeding user time (thread scheduling ",
+      "and malloc-arena contention, not compute), CPU utilization far exceeding the ",
+      "requested thread count, and non-deterministic results run-to-run at a fixed ",
+      "seed (floating-point summation order depends on TBB's work-stealing schedule). ",
+      "Use n_threads = 1 and get parallelism from running more independent processes ",
+      "instead (e.g. run_simulation_config_parallel.sh's max_parallel). If you're ",
+      "running on different hardware where this may no longer hold, re-benchmark ",
+      "before removing this guard.",
+      call. = FALSE
+    )
+  }
   RcppParallel::setThreadOptions(numThreads=n_threads)
-  
+
   # Hardcoding n_cores = 1, needs more attention to make multi-core works with multi-threading
   n_cores <- 1
   do_type_config <- .get_do_type(n_cores, log_file)
@@ -414,6 +436,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                                  treef_con_name_ = tree_files$con_trees, 
                                  treef_mod_name_ = tree_files$mod_trees, 
                                  treef_var_name_ = tree_files$var_trees,
+                                 treef_var_ratio_name_ = tree_files$var_ratio_trees,
                                  status_interval = update_interval,
                                  use_mscale = use_muscale, use_bscale = use_tauscale, 
                                  b_half_normal = TRUE, verbose_sigma=verbose, 
@@ -425,7 +448,8 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                                  var_nu = vartree_params$nu_tree,
                                  var_alpha = vartree_params$base,
                                  var_beta = vartree_params$power,
-                                 use_hetero = use_hetero)
+                                 use_hetero = use_hetero,
+                                 use_ratio = use_ratio)
     
     if(verbose) cat("bcfoverparRcppClean returned to R\n")
 
@@ -439,10 +463,16 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
 
     mu_post  = muy + sdy*(Tc*fitbcf$msd + Tm*fitbcf$b0)
     sigma2_post = sdy^2 * fitbcf$sigma2_post[,order(perm)]
+    sigma0_2_post = sdy^2 * fitbcf$sigma0_2_post[,order(perm)]
+    sigma1_2_post = sdy^2 * fitbcf$sigma1_2_post[,order(perm)]
+    log_sigma_ratio_post = fitbcf$log_sigma_ratio_post[,order(perm)]
     
     list(sigma = sdy*fitbcf$sigma,
          yhat = muy + sdy*fitbcf$yhat_post[,order(perm)],
          sigma2 = sigma2_post,
+         sigma0_2 = sigma0_2_post,
+         sigma1_2 = sigma1_2_post,
+         log_sigma_ratio = log_sigma_ratio_post,
          sdy = sdy,
          con_sd = con_sd,
          mod_sd = mod_sd,
@@ -475,6 +505,9 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   all_mu   = c()
   all_tau  = c()
   all_sigma2 = c()
+  all_sigma0_2 = c()
+  all_sigma1_2 = c()
+  all_log_sigma_ratio = c()
   
   chain_list=list()
 
@@ -492,6 +525,9 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     tau              <- chain_out[[iChain]]$tau
     mu               <- chain_out[[iChain]]$mu
     sigma2           <- chain_out[[iChain]]$sigma2
+    sigma0_2         <- chain_out[[iChain]]$sigma0_2
+    sigma1_2         <- chain_out[[iChain]]$sigma1_2
+    log_sigma_ratio  <- chain_out[[iChain]]$log_sigma_ratio
     has_file_output  <- chain_out[[iChain]]$has_file_output
 
     # -----------------------------    
@@ -507,6 +543,9 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
     all_mu   = rbind(all_mu,   mu)
     all_tau  = rbind(all_tau,  tau)
     all_sigma2 = rbind(all_sigma2, sigma2)
+    all_sigma0_2 = rbind(all_sigma0_2, sigma0_2)
+    all_sigma1_2 = rbind(all_sigma1_2, sigma1_2)
+    all_log_sigma_ratio = rbind(all_log_sigma_ratio, log_sigma_ratio)
 
     # -----------------------------    
     # Make the MCMC Object
@@ -517,6 +556,9 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                             "mu_bar"    = matrixStats::rowWeightedMeans(mu, w),
                             "yhat_bar"  = matrixStats::rowWeightedMeans(yhat, w),
                             "sigma2_bar" = matrixStats::rowWeightedMeans(sigma2, w),
+                            "sigma0_2_bar" = matrixStats::rowWeightedMeans(sigma0_2, w),
+                            "sigma1_2_bar" = matrixStats::rowWeightedMeans(sigma1_2, w),
+                            "log_sigma_ratio_bar" = matrixStats::rowWeightedMeans(log_sigma_ratio, w),
                             "mu_scale"  = mu_scale, 
                             # "tau_scale" = tau_scale,
                             "b0"  = b0, 
@@ -552,6 +594,9 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                  mu  = all_mu,
                  tau = all_tau,
                  sigma2 = all_sigma2,
+                 sigma0_2 = all_sigma0_2,
+                 sigma1_2 = all_sigma1_2,
+                 log_sigma_ratio = all_log_sigma_ratio,
                  mu_scale = all_mu_scale,
                  tau_scale = all_tau_scale,
                  b0 = all_b0,
@@ -572,28 +617,34 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   return(fitObj)
 }
 
-#' Fit Bayesian Causal Forests With Shared Heteroscedastic Residual Variance
+#' Fit Bayesian Causal Forests With Heteroscedastic Residual Variance
 #'
 #' @inheritParams bcf
 #' @param x_variance Design matrix for the residual variance function.
 #' @param vartree List of scalar product-of-trees variance prior parameters.
-#' @param variance_model Currently only \code{"shared"} is implemented.
+#' @param variance_model Either \code{"shared"} or \code{"ratio"}. The ratio
+#' model estimates \code{log(sigma1^2 / sigma0^2)} in addition to baseline variance.
 #' @return A fitted \code{bcf_hetero} object with posterior draws \code{mu},
-#' \code{tau}, \code{sigma2}, and observation-level \code{sigma}.
+#' \code{tau}, and variance draws. Shared mode returns \code{sigma2}; ratio
+#' mode also returns \code{sigma0_2}, \code{sigma1_2}, and \code{log_sigma_ratio}.
 #' @export
 bcf_hetero <- function(y, z, x_control, x_moderate=x_control, pihat, ...,
                        x_variance = x_control,
                        vartree = list(num_trees = 40, nu = 10, lambda = NULL,
                                       numcut = 100, sparse = FALSE),
                        variance_model = "shared") {
-  if (variance_model != "shared") {
-    stop("Only variance_model = 'shared' is implemented")
+  if (!variance_model %in% c("shared", "ratio")) {
+    stop("variance_model must be 'shared' or 'ratio'")
   }
   fit <- bcf(y = y, z = z, x_control = x_control, x_moderate = x_moderate,
              pihat = pihat, ..., x_variance = x_variance, vartree = vartree,
              variance_model = variance_model)
   fit$sigma_mean <- fit$sigma
   fit$sigma <- sqrt(fit$sigma2)
+  if (identical(variance_model, "ratio")) {
+    fit$sigma0 <- sqrt(fit$sigma0_2)
+    fit$sigma1 <- sqrt(fit$sigma1_2)
+  }
   attr(fit, "class") <- c("bcf_hetero", "bcf")
   fit
 }
@@ -624,8 +675,20 @@ bcf_hetero_cara_score <- function(fit, alpha, exponent_bounds = c(-700, 700)) {
     stop("exponent_bounds must be a finite increasing length-two vector")
   }
 
-  treated_u <- .cara_utility(fit$mu + fit$tau, fit$sigma2, alpha, exponent_bounds)
-  control_u <- .cara_utility(fit$mu, fit$sigma2, alpha, exponent_bounds)
+  if (identical(fit$variance_model, "ratio")) {
+    if (is.null(fit$sigma0_2) || is.null(fit$sigma1_2)) {
+      stop("ratio fits must contain sigma0_2 and sigma1_2")
+    }
+    if (!identical(dim(fit$mu), dim(fit$sigma0_2)) ||
+        !identical(dim(fit$mu), dim(fit$sigma1_2))) {
+      stop("fit$mu, fit$sigma0_2, and fit$sigma1_2 must have identical dimensions")
+    }
+    treated_u <- .cara_utility(fit$mu + fit$tau, fit$sigma1_2, alpha, exponent_bounds)
+    control_u <- .cara_utility(fit$mu, fit$sigma0_2, alpha, exponent_bounds)
+  } else {
+    treated_u <- .cara_utility(fit$mu + fit$tau, fit$sigma2, alpha, exponent_bounds)
+    control_u <- .cara_utility(fit$mu, fit$sigma2, alpha, exponent_bounds)
+  }
   colMeans(treated_u - control_u)
 }
 
@@ -640,6 +703,7 @@ bcf_hetero_cara_score <- function(fit, alpha, exponent_bounds = c(-700, 700)) {
 #' @return A list of posterior summaries and optional diagnostics.
 #' @export
 bcf_hetero_diagnostics <- function(fit, fit_reference = NULL, true_sigma2 = NULL,
+                                   true_sigma0_2 = NULL, true_sigma1_2 = NULL,
                                    alpha = NULL, top_k = NULL,
                                    exponent_bounds = c(-700, 700)) {
   if (is.null(fit$sigma2) || !is.matrix(fit$sigma2)) {
@@ -654,11 +718,43 @@ bcf_hetero_diagnostics <- function(fit, fit_reference = NULL, true_sigma2 = NULL
     tau_mean = if (!is.null(fit$tau)) colMeans(fit$tau) else NULL
   )
 
+  if (identical(fit$variance_model, "ratio")) {
+    out$sigma0_2_mean <- colMeans(fit$sigma0_2)
+    out$sigma1_2_mean <- colMeans(fit$sigma1_2)
+    out$log_sigma_ratio_mean <- colMeans(fit$log_sigma_ratio)
+  }
+
   if (!is.null(true_sigma2)) {
     if (length(true_sigma2) != n) stop("true_sigma2 must have length ncol(fit$sigma2)")
     finite <- is.finite(true_sigma2) & is.finite(sigma2_mean)
     out$sigma2_correlation <- if (sum(finite) >= 2) {
       stats::cor(true_sigma2[finite], sigma2_mean[finite])
+    } else {
+      NA_real_
+    }
+  }
+
+  if (!is.null(true_sigma0_2)) {
+    if (!identical(fit$variance_model, "ratio")) {
+      stop("true_sigma0_2 requires a ratio variance fit")
+    }
+    if (length(true_sigma0_2) != n) stop("true_sigma0_2 must have length ncol(fit$sigma2)")
+    finite <- is.finite(true_sigma0_2) & is.finite(out$sigma0_2_mean)
+    out$sigma0_2_correlation <- if (sum(finite) >= 2) {
+      stats::cor(true_sigma0_2[finite], out$sigma0_2_mean[finite])
+    } else {
+      NA_real_
+    }
+  }
+
+  if (!is.null(true_sigma1_2)) {
+    if (!identical(fit$variance_model, "ratio")) {
+      stop("true_sigma1_2 requires a ratio variance fit")
+    }
+    if (length(true_sigma1_2) != n) stop("true_sigma1_2 must have length ncol(fit$sigma2)")
+    finite <- is.finite(true_sigma1_2) & is.finite(out$sigma1_2_mean)
+    out$sigma1_2_correlation <- if (sum(finite) >= 2) {
+      stats::cor(true_sigma1_2[finite], out$sigma1_2_mean[finite])
     } else {
       NA_real_
     }
@@ -813,7 +909,11 @@ summary.bcf <- function(object,
 #' @param log_file File to log progress
 #' @param n_cores An optional integer of the number of cores to run your MCMC chains on
 #' @param verbose Logical; set to FALSE to suppress extra output
-#' @return A list with elements: tau (samples of treatment effects), mu (samples of predicted control outcomes), yhat (samples of predicted values), and coda_chains (coda objects for scalar summaries). Heteroscedastic fits also return sigma2 and sigma draws when type is "all" or "sigma2".
+#' @return A list with elements: tau (samples of treatment effects), mu
+#' (samples of predicted control outcomes), yhat (samples of predicted values),
+#' and coda_chains (coda objects for scalar summaries). Heteroscedastic fits
+#' also return sigma2 and sigma draws when type is "all" or "sigma2"; ratio
+#' fits additionally return sigma0_2, sigma1_2, and log_sigma_ratio.
 #' @examples
 #'\dontrun{
 #'
@@ -953,22 +1053,42 @@ predict.bcf <- function(object,
       Tc = cons$predict(t(x_pc))
 
       Sigma2 = NULL
+      Sigma0_2 = NULL
+      Sigma1_2 = NULL
+      LogSigmaRatio = NULL
       if(identical(object$variance_model, "shared")) {
         vars = TreeSamples$new()
         vars$load(tree_files$var_trees)
         Sigma2 = sdy^2 * vars$predict_prec(t(x_pv))
       }
+      if(identical(object$variance_model, "ratio")) {
+        vars = TreeSamples$new()
+        vars$load(tree_files$var_trees)
+        vars_ratio = TreeSamples$new()
+        vars_ratio$load(tree_files$var_ratio_trees)
+        Sigma0_2 = sdy^2 * vars$predict_prec(t(x_pv))
+        SigmaRatio = vars_ratio$predict_prec(t(x_pv))
+        Sigma1_2 = Sigma0_2 * SigmaRatio
+        LogSigmaRatio = log(SigmaRatio)
+        Sigma2 = Sigma0_2 * ifelse(z_pred == 1, SigmaRatio, 1)
+      }
       
       
       list(Tm = Tm,
            Tc = Tc,
-           Sigma2 = Sigma2)
+           Sigma2 = Sigma2,
+           Sigma0_2 = Sigma0_2,
+           Sigma1_2 = Sigma1_2,
+           LogSigmaRatio = LogSigmaRatio)
     }
     
     all_yhat = c()
     all_mu   = c()
     all_tau  = c()
     all_sigma2 = c()
+    all_sigma0_2 = c()
+    all_sigma1_2 = c()
+    all_log_sigma_ratio = c()
     
     chain_list=list()
 
@@ -1003,6 +1123,12 @@ predict.bcf <- function(object,
         if(identical(object$variance_model, "shared")) {
           all_sigma2 = rbind(all_sigma2, chain_out[[iChain]]$Sigma2)
         }
+        if(identical(object$variance_model, "ratio")) {
+          all_sigma2 = rbind(all_sigma2, chain_out[[iChain]]$Sigma2)
+          all_sigma0_2 = rbind(all_sigma0_2, chain_out[[iChain]]$Sigma0_2)
+          all_sigma1_2 = rbind(all_sigma1_2, chain_out[[iChain]]$Sigma1_2)
+          all_log_sigma_ratio = rbind(all_log_sigma_ratio, chain_out[[iChain]]$LogSigmaRatio)
+        }
         
         
         
@@ -1024,10 +1150,25 @@ predict.bcf <- function(object,
       out$sigma2 <- all_sigma2
       out$sigma <- sqrt(all_sigma2)
     }
+    if(identical(object$variance_model, "ratio")) {
+      out$sigma2 <- all_sigma2
+      out$sigma <- sqrt(all_sigma2)
+      out$sigma0_2 <- all_sigma0_2
+      out$sigma1_2 <- all_sigma1_2
+      out$sigma0 <- sqrt(all_sigma0_2)
+      out$sigma1 <- sqrt(all_sigma1_2)
+      out$log_sigma_ratio <- all_log_sigma_ratio
+    }
     if(type == "mu") return(out["mu"])
     if(type == "tau") return(out["tau"])
     if(type == "sigma2") {
-      if(!identical(object$variance_model, "shared")) stop("type = 'sigma2' requires a heteroscedastic BCF fit")
+      if(!object$variance_model %in% c("shared", "ratio")) {
+        stop("type = 'sigma2' requires a heteroscedastic BCF fit")
+      }
+      if(identical(object$variance_model, "ratio")) {
+        return(out[c("sigma2", "sigma", "sigma0_2", "sigma1_2",
+                     "sigma0", "sigma1", "log_sigma_ratio")])
+      }
       return(out[c("sigma2", "sigma")])
     }
     out
