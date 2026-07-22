@@ -5,3 +5,10 @@ bcfoverparRcppClean <- function(y_, z_, w_, x_con_, x_mod_, x_con_info_list, x_m
     .Call('_bcf_bcfoverparRcppClean', PACKAGE = 'bcf', y_, z_, w_, x_con_, x_mod_, x_con_info_list, x_mod_info_list, random_des, random_var, random_var_ix, random_var_df, burn, nd, thin, ntree_mod, ntree_con, lambda, nu, con_sd, mod_sd, con_alpha, con_beta, mod_alpha, mod_beta, treef_con_name_, treef_mod_name_, treef_var_name_, treef_var_ratio_name_, status_interval, RJ, use_mscale, use_bscale, b_half_normal, trt_init, verbose_sigma, no_output, x_var_, x_var_info_list, ntree_var, var_lambda, var_nu, var_alpha, var_beta, use_hetero, use_ratio)
 }
 
+#' Draw a joint BCF prior realization for simulation-based calibration
+#'
+#' Internal test helper. Hyperparameters must already be on the fitting scale.
+bcfSbcPriorDraw <- function(x_control, x_moderate, x_variance, z, cutpoints_control, cutpoints_moderate, cutpoints_variance, variance_model, ntree_control, ntree_moderate, ntree_variance, sd_control, sd_moderate, base_control, power_control, base_moderate, power_moderate, variance_base, variance_power, sigma_nu, sigma_lambda, variance_nu_tree, variance_lambda_tree, min_leaf = 5L, max_attempts = 100000L) {
+    .Call('_bcf_bcfSbcPriorDraw', PACKAGE = 'bcf', x_control, x_moderate, x_variance, z, cutpoints_control, cutpoints_moderate, cutpoints_variance, variance_model, ntree_control, ntree_moderate, ntree_variance, sd_control, sd_moderate, base_control, power_control, base_moderate, power_moderate, variance_base, variance_power, sigma_nu, sigma_lambda, variance_nu_tree, variance_lambda_tree, min_leaf, max_attempts)
+}
+

@@ -37,7 +37,11 @@ bcf(
   include_pi = "control",
   use_muscale = TRUE,
   use_tauscale = TRUE,
-  verbose = TRUE
+  verbose = TRUE,
+  x_variance = x_control,
+  vartree = NULL,
+  variance_model = "homoscedastic",
+  standardize = TRUE
 )
 }
 \arguments{
@@ -106,6 +110,17 @@ or "both" are HIGHLY recommended with observational data.}
 \item{use_tauscale}{Use a half-Normal prior on the scale of tau.}
 
 \item{verbose}{logical, whether to print log of MCMC iterations, defaults to TRUE.}
+
+\item{x_variance}{Design matrix for the residual variance function.}
+
+\item{vartree}{Optional list of scalar product-of-trees variance prior parameters.}
+
+\item{variance_model}{Residual variance model: \code{"homoscedastic"},
+\code{"shared"}, or \code{"ratio"}.}
+
+\item{standardize}{Logical; if \code{TRUE}, center and scale the outcome
+before fitting and transform posterior draws back to the original scale.
+Set to \code{FALSE} for prior-predictive calibration with fixed scales.}
 }
 \value{
 A fitted bcf object that is a list with elements

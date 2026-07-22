@@ -66,11 +66,47 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// bcfSbcPriorDraw
+List bcfSbcPriorDraw(NumericMatrix x_control, NumericMatrix x_moderate, NumericMatrix x_variance, NumericVector z, List cutpoints_control, List cutpoints_moderate, List cutpoints_variance, std::string variance_model, int ntree_control, int ntree_moderate, int ntree_variance, double sd_control, double sd_moderate, double base_control, double power_control, double base_moderate, double power_moderate, double variance_base, double variance_power, double sigma_nu, double sigma_lambda, double variance_nu_tree, double variance_lambda_tree, int min_leaf, int max_attempts);
+RcppExport SEXP _bcf_bcfSbcPriorDraw(SEXP x_controlSEXP, SEXP x_moderateSEXP, SEXP x_varianceSEXP, SEXP zSEXP, SEXP cutpoints_controlSEXP, SEXP cutpoints_moderateSEXP, SEXP cutpoints_varianceSEXP, SEXP variance_modelSEXP, SEXP ntree_controlSEXP, SEXP ntree_moderateSEXP, SEXP ntree_varianceSEXP, SEXP sd_controlSEXP, SEXP sd_moderateSEXP, SEXP base_controlSEXP, SEXP power_controlSEXP, SEXP base_moderateSEXP, SEXP power_moderateSEXP, SEXP variance_baseSEXP, SEXP variance_powerSEXP, SEXP sigma_nuSEXP, SEXP sigma_lambdaSEXP, SEXP variance_nu_treeSEXP, SEXP variance_lambda_treeSEXP, SEXP min_leafSEXP, SEXP max_attemptsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_control(x_controlSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_moderate(x_moderateSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_variance(x_varianceSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type z(zSEXP);
+    Rcpp::traits::input_parameter< List >::type cutpoints_control(cutpoints_controlSEXP);
+    Rcpp::traits::input_parameter< List >::type cutpoints_moderate(cutpoints_moderateSEXP);
+    Rcpp::traits::input_parameter< List >::type cutpoints_variance(cutpoints_varianceSEXP);
+    Rcpp::traits::input_parameter< std::string >::type variance_model(variance_modelSEXP);
+    Rcpp::traits::input_parameter< int >::type ntree_control(ntree_controlSEXP);
+    Rcpp::traits::input_parameter< int >::type ntree_moderate(ntree_moderateSEXP);
+    Rcpp::traits::input_parameter< int >::type ntree_variance(ntree_varianceSEXP);
+    Rcpp::traits::input_parameter< double >::type sd_control(sd_controlSEXP);
+    Rcpp::traits::input_parameter< double >::type sd_moderate(sd_moderateSEXP);
+    Rcpp::traits::input_parameter< double >::type base_control(base_controlSEXP);
+    Rcpp::traits::input_parameter< double >::type power_control(power_controlSEXP);
+    Rcpp::traits::input_parameter< double >::type base_moderate(base_moderateSEXP);
+    Rcpp::traits::input_parameter< double >::type power_moderate(power_moderateSEXP);
+    Rcpp::traits::input_parameter< double >::type variance_base(variance_baseSEXP);
+    Rcpp::traits::input_parameter< double >::type variance_power(variance_powerSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma_nu(sigma_nuSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma_lambda(sigma_lambdaSEXP);
+    Rcpp::traits::input_parameter< double >::type variance_nu_tree(variance_nu_treeSEXP);
+    Rcpp::traits::input_parameter< double >::type variance_lambda_tree(variance_lambda_treeSEXP);
+    Rcpp::traits::input_parameter< int >::type min_leaf(min_leafSEXP);
+    Rcpp::traits::input_parameter< int >::type max_attempts(max_attemptsSEXP);
+    rcpp_result_gen = Rcpp::wrap(bcfSbcPriorDraw(x_control, x_moderate, x_variance, z, cutpoints_control, cutpoints_moderate, cutpoints_variance, variance_model, ntree_control, ntree_moderate, ntree_variance, sd_control, sd_moderate, base_control, power_control, base_moderate, power_moderate, variance_base, variance_power, sigma_nu, sigma_lambda, variance_nu_tree, variance_lambda_tree, min_leaf, max_attempts));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 RcppExport SEXP _rcpp_module_boot_TreeSamples();
 
 static const R_CallMethodDef CallEntries[] = {
     {"_bcf_bcfoverparRcppClean", (DL_FUNC) &_bcf_bcfoverparRcppClean, 45},
+    {"_bcf_bcfSbcPriorDraw", (DL_FUNC) &_bcf_bcfSbcPriorDraw, 25},
     {"_rcpp_module_boot_TreeSamples", (DL_FUNC) &_rcpp_module_boot_TreeSamples, 0},
     {NULL, NULL, 0}
 };

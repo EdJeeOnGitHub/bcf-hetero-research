@@ -33,8 +33,7 @@
 
 \item{save_tree_directory}{directory where the trees have been saved}
 
-\item{x_predict_variance}{matrix of covariates for the residual variance
-function in heteroscedastic fits}
+\item{x_predict_variance}{matrix of covariates for the residual variance function in heteroscedastic fits}
 
 \item{type}{Which posterior prediction components to return}
 
@@ -47,10 +46,13 @@ function in heteroscedastic fits}
 \item{...}{additional arguments affecting the predictions produced.}
 }
 \value{
-A list with elements: tau (samples of treatment effects), mu (samples of
-predicted control outcomes), yhat (samples of predicted values), and
-coda_chains (coda objects for scalar summaries). Heteroscedastic fits also
-return sigma2 and sigma draws when type is "all" or "sigma2".
+A list with elements: tau (samples of treatment effects), mu
+(samples of predicted control outcomes), yhat (samples of predicted values),
+and coda_chains (coda objects for scalar summaries). Heteroscedastic fits
+also return sigma2 and sigma draws when type is "all" or "sigma2"; ratio
+fits additionally return sigma0_2, sigma1_2, and log_var_ratio, where
+log_var_ratio is log(sigma1_2 / sigma0_2). The log standard-deviation ratio
+is log_var_ratio / 2.
 }
 \description{
 This function takes in an existing BCF model fit and uses it to predict estimates for new data.

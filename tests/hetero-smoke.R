@@ -168,16 +168,22 @@ stopifnot(
   identical(dim(fit$sigma2), c(3L, as.integer(n))),
   identical(dim(fit$sigma0_2), c(3L, as.integer(n))),
   identical(dim(fit$sigma1_2), c(3L, as.integer(n))),
-  identical(dim(fit$log_sigma_ratio), c(3L, as.integer(n))),
+  identical(dim(fit$log_var_ratio), c(3L, as.integer(n))),
   identical(dim(fit$sigma0), c(3L, as.integer(n))),
   identical(dim(fit$sigma1), c(3L, as.integer(n))),
   all(is.finite(fit$sigma0_2)),
   all(is.finite(fit$sigma1_2)),
-  all(is.finite(fit$log_sigma_ratio)),
+  all(is.finite(fit$log_var_ratio)),
   all(fit$sigma0_2 > 0),
   all(fit$sigma1_2 > 0),
   isTRUE(all.equal(fit$sigma0, sqrt(fit$sigma0_2), check.attributes = FALSE)),
-  isTRUE(all.equal(fit$sigma1, sqrt(fit$sigma1_2), check.attributes = FALSE))
+  isTRUE(all.equal(fit$sigma1, sqrt(fit$sigma1_2), check.attributes = FALSE)),
+  isTRUE(all.equal(
+    fit$log_var_ratio,
+    log(fit$sigma1_2 / fit$sigma0_2),
+    check.attributes = FALSE
+  )),
+  is.null(fit$log_sigma_ratio)
 )
 
 score <- bcf_hetero_cara_score(fit, alpha = 0.1)
@@ -203,12 +209,19 @@ stopifnot(
   identical(dim(pred$sigma2), c(3L, as.integer(n))),
   identical(dim(pred$sigma0_2), c(3L, as.integer(n))),
   identical(dim(pred$sigma1_2), c(3L, as.integer(n))),
-  identical(dim(pred$log_sigma_ratio), c(3L, as.integer(n))),
+  identical(dim(pred$log_var_ratio), c(3L, as.integer(n))),
   all(is.finite(pred$sigma0_2)),
   all(is.finite(pred$sigma1_2)),
+  all(is.finite(pred$log_var_ratio)),
   all(pred$sigma0_2 > 0),
   all(pred$sigma1_2 > 0),
-  isTRUE(all.equal(pred$sigma, sqrt(pred$sigma2), check.attributes = FALSE))
+  isTRUE(all.equal(pred$sigma, sqrt(pred$sigma2), check.attributes = FALSE)),
+  isTRUE(all.equal(
+    pred$log_var_ratio,
+    log(pred$sigma1_2 / pred$sigma0_2),
+    check.attributes = FALSE
+  )),
+  is.null(pred$log_sigma_ratio)
 )
 
 diag <- bcf_hetero_diagnostics(
@@ -223,7 +236,7 @@ diag <- bcf_hetero_diagnostics(
 stopifnot(
   length(diag$sigma0_2_mean) == n,
   length(diag$sigma1_2_mean) == n,
-  length(diag$log_sigma_ratio_mean) == n,
+  length(diag$log_var_ratio_mean) == n,
   is.finite(diag$sigma0_2_correlation) || is.na(diag$sigma0_2_correlation),
   is.finite(diag$sigma1_2_correlation) || is.na(diag$sigma1_2_correlation)
 )

@@ -193,7 +193,7 @@ run_ratio_rep <- function(seed, cfg) {
   fit <- fit_hetero(y, z, x, pihat, "ratio", cfg)
   log_sigma0_2_draws <- log(pmax(fit$sigma0_2, .Machine$double.eps))
   log_sigma1_2_draws <- log(pmax(fit$sigma1_2, .Machine$double.eps))
-  log_ratio_draws <- fit$log_sigma_ratio
+  log_ratio_draws <- fit$log_var_ratio
 
   data.frame(
     scenario = "ratio",

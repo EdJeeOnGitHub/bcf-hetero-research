@@ -12,6 +12,34 @@ BCF performs remarkably well in simulation and has led the pack at recent rigoro
 
 If you are just getting started with `bcf`, we recommend beginning with the tutorial vignettes.
 
+## Heteroscedastic residual variance
+
+`bcf_hetero()` supports a shared variance function and a treatment-to-control
+variance-ratio model. Ratio fits and predictions return `sigma0_2`,
+`sigma1_2`, and `log_var_ratio`, with
+`log_var_ratio = log(sigma1_2 / sigma0_2)`. Thus the log standard-deviation
+ratio is `log_var_ratio / 2`.
+
+## Simulation-based calibration
+
+The joint SBC harness draws prognostic, treatment-effect, and variance trees
+from their exact fixed-scale priors, simulates outcomes, and refits the
+homoscedastic, shared-variance, and variance-ratio models. It also compares the
+homoscedastic estimator on the same heteroscedastic draws as a deliberately
+misspecified benchmark.
+
+```sh
+Rscript tools/sbc/joint-sbc.R --profile smoke
+Rscript tools/sbc/joint-sbc.R --profile pilot
+Rscript tools/sbc/joint-sbc.R --profile standard --workers 8
+```
+
+The standard profile runs 250 replicates and writes rank data, coverage and
+convergence summaries, benchmark metrics, plots, and a Markdown report beneath
+`sbc-output/`. Exact prior-predictive calibration uses `standardize = FALSE`
+and explicitly fixed prior scales; ordinary fits continue to standardize by
+default.
+
 ## Installation
 
 This package requires compilation, so make sure you have Rtools properly installed if you are on Windows -- see [this site](https://cran.r-project.org/bin/windows/Rtools/) for details.

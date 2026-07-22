@@ -415,7 +415,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
   NumericMatrix sigma2_post(nd,n);
   NumericMatrix sigma0_2_post(nd,n);
   NumericMatrix sigma1_2_post(nd,n);
-  NumericMatrix log_sigma_ratio_post(nd,n);
+  NumericMatrix log_var_ratio_post(nd,n);
   arma::mat gamma_post(nd,gamma.n_elem);
   arma::mat random_var_post(nd,random_var.n_elem);
 
@@ -1112,7 +1112,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
         sigma2_post(save_ctr, k) = use_hetero ? sigma2_fit[k] : sigma * sigma;
         sigma0_2_post(save_ctr, k) = use_hetero ? sigma0_2_fit[k] : sigma * sigma;
         sigma1_2_post(save_ctr, k) = use_hetero ? sigma0_2_fit[k] * (use_ratio ? sigma_ratio_fit[k] : 1.0) : sigma * sigma;
-        log_sigma_ratio_post(save_ctr, k) = use_ratio ? std::log(sigma_ratio_fit[k]) : 0.0;
+        log_var_ratio_post(save_ctr, k) = use_ratio ? std::log(sigma_ratio_fit[k]) : 0.0;
       }
       for(size_t k=0;k<n;k++) {
         double bscale = (k<ntrt) ? bscale1 : bscale0;
@@ -1174,7 +1174,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
                       _["sigma2_post"] = sigma2_post,
                       _["sigma0_2_post"] = sigma0_2_post,
                       _["sigma1_2_post"] = sigma1_2_post,
-                      _["log_sigma_ratio_post"] = log_sigma_ratio_post,
+                      _["log_var_ratio_post"] = log_var_ratio_post,
                       _["sigma"] = sigma_post, _["msd"] = msd_post, _["bsd"] = bsd_post, _["b0"] = b0_post, _["b1"] = b1_post,
                       _["gamma"] = gamma_post, _["random_var_post"] = random_var_post
   ));

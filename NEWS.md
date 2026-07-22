@@ -3,6 +3,12 @@
 * Add `bcf_hetero()` for shared heteroscedastic residual variance using a scalar product-of-trees variance model.
 * Store posterior draws of observation-level `sigma2` and add variance-aware CARA scoring/diagnostics helpers.
 * Extend `predict.bcf()` to support variance prediction from saved heteroscedastic variance trees.
+* Add a treatment-to-control variance-ratio model. Its log variance-ratio output
+  is named `log_var_ratio`; the earlier development name `log_sigma_ratio` has
+  been removed because it could be mistaken for a log standard-deviation ratio.
+* Add fixed-scale fitting via `standardize = FALSE` and a joint prior-predictive
+  SBC harness for prognostic, treatment-effect, homoscedastic variance, shared
+  variance, and treatment/control variance-ratio recovery.
 
 # bcf 2.0.2
 

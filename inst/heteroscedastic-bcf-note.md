@@ -27,7 +27,9 @@ with `variance_model = "shared"` or `variance_model = "ratio"` and a `vartree`
 prior list. The returned object contains posterior draw matrices `mu`, `tau`,
 `sigma2`, and `sigma`, where `sigma = sqrt(sigma2)` on the original outcome
 scale. In ratio mode it also contains `sigma0_2`, `sigma1_2`,
-`log_sigma_ratio`, `sigma0`, and `sigma1`.
+`log_var_ratio`, `sigma0`, and `sigma1`, where
+`log_var_ratio = log(sigma1_2 / sigma0_2)`. The corresponding log standard-
+deviation ratio is `log_var_ratio / 2`.
 
 The variance function is a scalar product-of-trees model adapted from
 Thomas Wiemann's `bayesm.HART` `varbart` machinery. Each variance tree has
@@ -60,7 +62,7 @@ trees are informed by treated residuals. When tree output is enabled, variance
 trees are serialized alongside the control and moderator trees. Ratio mode also
 serializes ratio trees. `predict.bcf(..., type = "sigma2")` returns
 out-of-sample variance draws; ratio fits also return `sigma0_2`, `sigma1_2`,
-and `log_sigma_ratio`.
+and `log_var_ratio`.
 
 Differences from `bayesm.HART`:
 
@@ -117,3 +119,24 @@ tree prior and estimates the variance functions, while the analytical linear
 posterior conditions on known variances and uses a linear prior. The test is a
 sanity check that, in a simple linear-Gaussian problem, BCF posterior estimands
 land near the exact linear benchmark and have overlapping credible intervals.
+
+## Joint Simulation-Based Calibration
+
+`tools/sbc/joint-sbc.R` performs prior-predictive SBC of the prognostic,
+treatment-effect, and variance components together. Its correctly specified
+scenarios are homoscedastic, shared heteroscedastic, and treatment/control
+variance ratio. The homoscedastic estimator is also fit to each heteroscedastic
+draw as a misspecification benchmark; those cross-fit metrics are not treated
+as SBC ranks.
+
+The harness uses `standardize = FALSE`, fixed mean and treatment scales, fixed
+variance hyperparameters, and an internal C++ generator that shares the
+sampler's tree topology, cutpoint, minimum-leaf, normal-leaf, and scaled
+inverse-chi-square laws. It writes replicate data, calibration and convergence
+summaries, rank plots, benchmark metrics, and a Markdown report.
+
+```bash
+Rscript tools/sbc/joint-sbc.R --profile smoke
+Rscript tools/sbc/joint-sbc.R --profile pilot
+Rscript tools/sbc/joint-sbc.R --profile standard --workers 8
+```
