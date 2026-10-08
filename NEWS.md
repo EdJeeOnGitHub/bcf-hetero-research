@@ -1,3 +1,58 @@
+# bcf 2.0.2.9011 (research fork)
+
+* Add optional joint shared/ratio variance scale proposals and paired variance
+  leaf proposals, controlled by `joint_variance_every` and
+  `paired_variance_every` (both disabled by default).
+* Include optional variance-tree split changes and joint Gaussian mean-leaf
+  refreshes from the intervening development builds.
+* Include numerical posterior references for joint/paired variance moves,
+  split-change reference checks, and saved-tree prediction replay checks.
+* Regenerate Rcpp bindings to match the full sampler signature; this fixes
+  stale bindings in the frozen source snapshot without changing sampler code.
+* Document fork-specific installation, opt-in controls and validation limits.
+
+## Experimental 2.0.2.9007
+
+- Optional collapsed prognostic Cauchy amplitude removes redundant scale variables while preserving the marginal forest prior. Disabled by default; awaiting validation.
+
+# bcf 2.0.2.9006 (experimental)
+
+* Add optional `joint_mean_every` for an exact Gaussian refresh of all mean
+  leaf coefficients at fixed partitions and scales. Default zero disables it.
+* Record refresh counts and the largest coefficient block. Full posterior
+  and saved-tree replay checks cover enabled and disabled settings.
+
+# bcf 2.0.2.9005 (experimental)
+
+* Add opt-in `global_mean_update`, a joint Gaussian refresh of the two
+  ensemble intercept directions. It holds leaf contrasts fixed and preserves
+  the current conditional prior and likelihood. Default FALSE.
+
+# bcf 2.0.2.9004 (experimental)
+
+* Add opt-in `paired_mean_update` for heteroskedastic fits. Joint Gaussian
+  refreshes of prognostic and treatment tree leaves preserve the existing
+  conditional prior and likelihood. The default remains disabled.
+* Report successful and skipped paired updates. Analytical posterior and
+  saved-tree replay checks exercise both settings before study validation.
+
+# bcf 2.0.2.9003
+
+* Correct the prognostic leaf-scale Gamma precision conditional to use its
+  fixed base leaf variance. The old conditional included the previous precision
+  in its residual statistic. Correct the corresponding optional non-half-Normal
+  moderator branch as well.
+* Add an almost-uninformative-likelihood check against the analytical log
+  moment and tail probability implied by the documented half-Cauchy scale prior.
+
+# bcf 2.0.2.9002
+
+* Correct shared and treatment/control variance-ratio tree conditionals to
+  include the observation precision `w` in squared residuals. Mean, scale,
+  and variance updates now target the same documented weighted likelihood.
+* Add weighted-variance regression checks against an analytical shared-variance
+  posterior and a reference two-factor Gibbs sampler.
+
 # bcf 2.0.2.9001
 
 * Add `bcf_hetero()` for shared heteroscedastic residual variance using a scalar product-of-trees variance model.

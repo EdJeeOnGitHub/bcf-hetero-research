@@ -243,3 +243,40 @@ bool bd(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen, Logger 
       }
    }
 }
+
+// Collapsed split-rule MH move at a node with two terminal children.
+// Call drmu immediately afterwards: acceptance integrates the leaf coefficients.
+// The split-rule proposal equals its conditional prior. Parent-region variable
+// and cutpoint probabilities cancel, as does uniform selection among nog nodes.
+// Only the child terminal probabilities and Gaussian marginal likelihood remain.
+bool mean_split_change(tree& x, xinfo& xi, dinfo& di, double* phi,
+                       pinfo& pi, RNG& gen)
+{
+  tree::npv nogs; x.getnogs(nogs);
+  if(nogs.empty()) return false;
+  tree::tree_p node=nogs[(size_t)std::floor(gen.uniform()*nogs.size())];
+  std::vector<size_t> vars; getgoodvars(node,xi,vars);
+  if(vars.empty()) return false;
+  size_t v=vars[(size_t)std::floor(gen.uniform()*vars.size())];
+  int lo=0,hi=(int)xi[v].size()-1; node->rg(v,&lo,&hi);
+  size_t c=(size_t)(lo+std::floor(gen.uniform()*(hi-lo+1)));
+  size_t oldv=node->getv(),oldc=node->getc();
+  if(v==oldv && c==oldc) return false;
+  sinfo oldl,oldr,newl,newr;
+  getsuffDeath(x,node->getl(),node->getr(),xi,di,phi,oldl,oldr);
+  double oldprior=std::log1p(-pgrow(node->getl(),xi,pi))+
+                  std::log1p(-pgrow(node->getr(),xi,pi));
+  node->setv(v); node->setc(c);
+  getsuffDeath(x,node->getl(),node->getr(),xi,di,phi,newl,newr);
+  bool accept=false;
+  if(newl.n0>4 && newr.n0>4) {
+    double newprior=std::log1p(-pgrow(node->getl(),xi,pi))+
+                    std::log1p(-pgrow(node->getr(),xi,pi));
+    double logratio=newprior-oldprior+
+      lil(newl.n,newl.sy,pi.sigma,pi.tau)+lil(newr.n,newr.sy,pi.sigma,pi.tau)-
+      lil(oldl.n,oldl.sy,pi.sigma,pi.tau)-lil(oldr.n,oldr.sy,pi.sigma,pi.tau);
+    accept=std::log(gen.uniform())<std::min(0.0,logratio);
+  }
+  if(!accept) {node->setv(oldv);node->setc(oldc);}
+  return accept;
+}

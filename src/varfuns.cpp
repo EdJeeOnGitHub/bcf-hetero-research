@@ -208,3 +208,37 @@ bool varbd(tree& x, xinfo& xi, dinfo& di, pinfo& pi,
   }
   return false;
 }
+
+// Collapsed split-rule move; vardrmu must immediately redraw the leaf variances.
+// di.y contains precision-weighted residual squares / other variance factors.
+bool variance_split_change(tree& x, xinfo& xi, dinfo& di, pinfo& pi,
+                           double nu, double lambda, RNG& gen)
+{
+  tree::npv nogs; x.getnogs(nogs);
+  if(nogs.empty()) return false;
+  tree::tree_p node=nogs[(size_t)std::floor(gen.uniform()*nogs.size())];
+  std::vector<size_t> vars; getgoodvars(node,xi,vars);
+  if(vars.empty()) return false;
+  size_t v=vars[(size_t)std::floor(gen.uniform()*vars.size())];
+  int lo=0,hi=(int)xi[v].size()-1; node->rg(v,&lo,&hi);
+  size_t c=(size_t)(lo+std::floor(gen.uniform()*(hi-lo+1)));
+  size_t oldv=node->getv(),oldc=node->getc();
+  if(v==oldv && c==oldc) return false;
+  size_t oldnl,oldnr,newnl,newnr;double oldSl,oldSr,newSl,newSr;
+  vargetsuffDeath(x,node->getl(),node->getr(),xi,di,oldnl,oldSl,oldnr,oldSr);
+  double oldprior=std::log1p(-pgrow(node->getl(),xi,pi))+
+                  std::log1p(-pgrow(node->getr(),xi,pi));
+  node->setv(v);node->setc(c);
+  vargetsuffDeath(x,node->getl(),node->getr(),xi,di,newnl,newSl,newnr,newSr);
+  bool accept=false;
+  if(newnl>=5 && newnr>=5){
+    double newprior=std::log1p(-pgrow(node->getl(),xi,pi))+
+                    std::log1p(-pgrow(node->getr(),xi,pi));
+    double logratio=newprior-oldprior+
+      varlh(newSl,newnl,nu,lambda)+varlh(newSr,newnr,nu,lambda)-
+      varlh(oldSl,oldnl,nu,lambda)-varlh(oldSr,oldnr,nu,lambda);
+    accept=std::log(gen.uniform())<std::min(0.0,logratio);
+  }
+  if(!accept){node->setv(oldv);node->setc(oldc);}
+  return accept;
+}

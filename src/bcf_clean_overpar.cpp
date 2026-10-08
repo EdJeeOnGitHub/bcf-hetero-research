@@ -14,6 +14,9 @@
 #include "bd.h"
 #include "logging.h"
 #include "varfuns.h"
+#include "paired_mean.h"
+#include "joint_variance.h"
+#include "paired_variance.h"
 
 using namespace Rcpp;
 // Rstudios check's suggest not ignoring these
@@ -58,9 +61,22 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
                   double var_alpha = 0.95,
                   double var_beta = 2.0,
                   bool use_hetero = false,
-                  bool use_ratio = false)
+                  bool use_ratio = false,
+                  bool use_paired_mean_update = false, bool use_global_mean_update = false, int joint_mean_every = 0, bool collapsed_mu_scale = false, bool use_mean_split_change = false, bool use_variance_split_change = false, int joint_variance_every = 0, int paired_variance_every = 0)
 {
 
+  if((use_paired_mean_update || use_global_mean_update) && !use_hetero) stop("Paired mean update requires heteroskedastic likelihood");
+  if(use_variance_split_change && !use_hetero) stop("Variance split changes require heteroskedastic likelihood");
+  if(joint_mean_every<0) stop("joint_mean_every must be nonnegative");
+  if(joint_mean_every>0 && !use_hetero) stop("Joint mean refresh currently requires heteroskedastic likelihood");
+  if(joint_variance_every<0 || (joint_variance_every>0 && (!use_hetero || !use_ratio))) stop("Joint variance update requires ratio likelihood and nonnegative interval");
+  if(paired_variance_every<0 || (paired_variance_every>0 && (!use_hetero || !use_ratio))) stop("Paired variance update requires ratio model and nonnegative interval");
+  double paired_variance_attempts=0,paired_variance_accepts=0;
+  double joint_variance_attempts=0,joint_variance_accepts=0;
+  double joint_mean_updates=0, joint_mean_max_leaves=0;
+  double mean_split_change_attempts=0, mean_split_change_accepts=0;
+  double variance_split_change_attempts=0, variance_split_change_accepts=0;
+  double paired_mean_updates=0, paired_mean_skips=0;
   bool randeff = true;
   if(random_var_ix.n_elem == 1) {
     randeff = false;
@@ -622,6 +638,10 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       logger.log("Starting To Draw Mu");
       logger.startContext();
 
+      if(use_mean_split_change) {
+        ++mean_split_change_attempts;
+        mean_split_change_accepts+=mean_split_change(t_con[iTreeCon],xi_con,di_con,weight,pi_con,gen);
+      }
       drmu(t_con[iTreeCon],  // tree& x
            xi_con, // xinfo& xi
            di_con, // dinfo& di
@@ -735,6 +755,10 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       }
       logger.log("Starting To Draw Mu");
       logger.startContext();
+      if(use_mean_split_change) {
+        ++mean_split_change_attempts;
+        mean_split_change_accepts+=mean_split_change(t_mod[iTreeMod],xi_mod,di_mod,weight_het,pi_mod,gen);
+      }
       drmu(t_mod[iTreeMod],
             xi_mod,
             di_mod,
@@ -855,7 +879,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
           bvsz nb = bnv.size();
           for(bvsz ii = 0; ii<nb; ++ii) {
             double mm = bnv[ii]->getm(); //node parameter
-            ssq += mm*mm/(pi_mod.tau*pi_mod.tau);
+            // delta_mod is an absolute Gamma precision. Its conditional
+            // uses the fixed base leaf variance, excluding delta_mod itself.
+            ssq += mm*mm*((double)ntree_mod)/(mod_sd*mod_sd);
             endnode_count += 1.0;
           }
         }
@@ -919,6 +945,13 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
         allfit_con[k] = allfit_con[k]*mscale/mscale_old;
       }
 
+      if(collapsed_mu_scale) {
+        // phi = sqrt(delta_old) * theta; rho = a / sqrt(delta_old).
+        // Marginal rho is Cauchy(0,1), independent of fixed Gaussian phi.
+        // rho | lambda ~ N(0,1/lambda), lambda | rho ~ Gamma(1,(1+rho^2)/2).
+        mscale_prec = gen.gamma(1.0, 1.0)/(0.5*(1.0 + mscale*mscale));
+        pi_con.tau = con_sd/sqrt((double)ntree_con);
+      } else {
       // update delta_con
 
       double ssq = 0.0;
@@ -932,7 +965,9 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
         bvsz nb = bnv.size();
         for(bvsz ii = 0; ii<nb; ++ii) {
           double mm = bnv[ii]->getm(); //node parameter
-          ssq += mm*mm/(pi_con.tau*pi_con.tau);
+          // Var(leaf | delta_con) = con_sd^2 / (ntree_con * delta_con).
+          // Conditioning on leaves therefore uses their fixed base variance.
+          ssq += mm*mm*((double)ntree_con)/(con_sd*con_sd);
           endnode_count += 1.0;
         }
       }
@@ -949,6 +984,7 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
         Rcout << "New pi_con.tau : " <<  pi_con.tau << "\n\n";
       }
 
+      }
 
     } else {
       mscale = 1.0;
@@ -1018,6 +1054,27 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
       }
     }
 
+    if(joint_mean_every>0 && (iIter+1)%joint_mean_every==0) {
+      size_t leaves=joint_mean_refresh(t_con,t_mod,xi_con,xi_mod,di_con,di_mod,
+        y.data(),w,sigma2_fit,ntrt,mscale,bscale0,bscale1,pi_con.tau,pi_mod.tau,
+        allfit_con,allfit_mod,allfit,gen);
+      ++joint_mean_updates;joint_mean_max_leaves=std::max(joint_mean_max_leaves,(double)leaves);
+    }
+    if(use_global_mean_update)
+      global_mean_refresh(t_con,t_mod,y.data(),w,sigma2_fit,n,ntrt,
+        mscale,bscale0,bscale1,pi_con.tau,pi_mod.tau,
+        allfit_con,allfit_mod,allfit,gen);
+
+    if(use_paired_mean_update) {
+      for(size_t j=0;j<t_mod.size();++j) {
+        bool ok=paired_mean_refresh(t_con[(j+iIter)%t_con.size()],t_mod[j],
+          xi_con,xi_mod,di_con,di_mod,y.data(),w,sigma2_fit,ntrt,
+          mscale,bscale0,bscale1,pi_con.tau,pi_mod.tau,
+          allfit_con,allfit_mod,allfit,gen);
+        if(ok) ++paired_mean_updates; else ++paired_mean_skips;
+      }
+    }
+
     if(use_hetero) {
       for(size_t iTreeVar=0; iTreeVar<(size_t) ntree_var; ++iTreeVar) {
         fit(t_var[iTreeVar], xi_var, di_var, ftemp_var);
@@ -1025,9 +1082,16 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
           sigma0_2_fit[k] = sigma0_2_fit[k] / ftemp_var[k];
           sigma2_fit[k] = sigma0_2_fit[k] * ((use_ratio && k < (size_t)ntrt) ? sigma_ratio_fit[k] : 1.0);
           double restemp = y[k] - allfit[k];
-          r_var[k] = std::max(1e-12, restemp * restemp / sigma2_fit[k]);
+          // w is a likelihood precision: Var(y_k | f_k) = sigma2_k / w_k.
+          // The variance-tree likelihood must use the same weighted squared
+          // residual as the mean/scale conditionals and homoscedastic update.
+          r_var[k] = std::max(1e-12, w[k] * restemp * restemp / sigma2_fit[k]);
         }
         varbd(t_var[iTreeVar], xi_var, di_var, pi_var, var_nu, var_lambda, gen);
+        if(use_variance_split_change){
+          ++variance_split_change_attempts;
+          variance_split_change_accepts+=variance_split_change(t_var[iTreeVar],xi_var,di_var,pi_var,var_nu,var_lambda,gen);
+        }
         vardrmu(t_var[iTreeVar], xi_var, di_var, var_nu, var_lambda, gen);
         fit(t_var[iTreeVar], xi_var, di_var, ftemp_var);
         for(size_t k=0; k<n; ++k) {
@@ -1047,10 +1111,14 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
           for(size_t k=0; k<(size_t)ntrt; ++k) {
             sigma2_fit[k] = sigma0_2_fit[k] * sigma_ratio_fit[k];
             double restemp = y[k] - allfit[k];
-            r_var_ratio[k] = std::max(1e-12, restemp * restemp / sigma2_fit[k]);
+            r_var_ratio[k] = std::max(1e-12, w[k] * restemp * restemp / sigma2_fit[k]);
           }
           varbd(t_var_ratio[iTreeVarRatio], xi_var, di_var_ratio, pi_var,
                 var_nu, var_lambda, gen);
+          if(use_variance_split_change){
+            ++variance_split_change_attempts;
+            variance_split_change_accepts+=variance_split_change(t_var_ratio[iTreeVarRatio],xi_var,di_var_ratio,pi_var,var_nu,var_lambda,gen);
+          }
           vardrmu(t_var_ratio[iTreeVarRatio], xi_var, di_var_ratio,
                   var_nu, var_lambda, gen);
           fit(t_var_ratio[iTreeVarRatio], xi_var, di_var_ratio_all, ftemp_var_ratio);
@@ -1064,6 +1132,20 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
               stop("nonpositive or non-finite sigma2_fit in heteroscedastic ratio update");
             }
           }
+        }
+      }
+      if(joint_variance_every>0 && (iIter+1)%joint_variance_every==0) {
+        ++joint_variance_attempts;
+        joint_variance_accepts+=joint_variance_refresh(t_var,t_var_ratio,y.data(),allfit,w,
+          sigma0_2_fit,sigma_ratio_fit,sigma2_fit,n,ntrt,var_nu,var_lambda,gen);
+      }
+      if(paired_variance_every>0 && (iIter+1)%paired_variance_every==0) {
+        for(size_t j=0;j<t_var.size();++j){
+          size_t chosen=std::min((size_t)(gen.uniform()*ntrt),(size_t)ntrt-1);
+          ++paired_variance_attempts;
+          paired_variance_accepts+=paired_variance_refresh(t_var[j],t_var_ratio[(j+iIter)%t_var_ratio.size()],
+            xi_var,di_var.x,di_var.p,chosen,y.data(),allfit,w,sigma0_2_fit,sigma_ratio_fit,
+            sigma2_fit,n,ntrt,var_nu,var_lambda,gen);
         }
       }
       double mean_sigma2 = 0.0;
@@ -1176,6 +1258,21 @@ List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_,
                       _["sigma1_2_post"] = sigma1_2_post,
                       _["log_var_ratio_post"] = log_var_ratio_post,
                       _["sigma"] = sigma_post, _["msd"] = msd_post, _["bsd"] = bsd_post, _["b0"] = b0_post, _["b1"] = b1_post,
-                      _["gamma"] = gamma_post, _["random_var_post"] = random_var_post
+                      _["gamma"] = gamma_post, _["random_var_post"] = random_var_post,
+                      _["collapsed_mu_scale"] = collapsed_mu_scale,
+                      _["paired_variance_attempts"] = paired_variance_attempts,
+                      _["paired_variance_accepts"] = paired_variance_accepts,
+                      _["joint_variance_attempts"] = joint_variance_attempts,
+                      _["joint_variance_accepts"] = joint_variance_accepts,
+                      _["variance_split_change_attempts"] = variance_split_change_attempts,
+                      _["variance_split_change_accepts"] = variance_split_change_accepts,
+                      _["mean_split_change_attempts"] = mean_split_change_attempts,
+                      _["mean_split_change_accepts"] = mean_split_change_accepts,
+                      _["joint_mean_updates"] = joint_mean_updates,
+                      _["joint_mean_max_leaves"] = joint_mean_max_leaves,
+                      _["global_mean_update"] = use_global_mean_update,
+                      _["paired_mean_update"] = use_paired_mean_update,
+                      _["paired_mean_updates"] = paired_mean_updates,
+                      _["paired_mean_skips"] = paired_mean_skips
   ));
 }

@@ -34,6 +34,12 @@ fit <- bcf_hetero(
   save_tree_directory = tree_dir,
   verbose = FALSE,
   use_muscale = FALSE,
+  collapsed_mu_scale=identical(Sys.getenv("BCF_COLLAPSED_MU_SCALE"),"true"),
+  variance_split_change=identical(Sys.getenv("BCF_VARIANCE_SPLIT_CHANGE"),"true"),
+  mean_split_change=identical(Sys.getenv("BCF_MEAN_SPLIT_CHANGE"),"true"),
+  joint_mean_every=as.integer(Sys.getenv("BCF_JOINT_MEAN_EVERY","0")),
+  global_mean_update = identical(Sys.getenv("BCF_GLOBAL_MEAN_UPDATE"),"true"),
+  paired_mean_update = identical(Sys.getenv("BCF_PAIRED_MEAN_UPDATE"),"true"),
   use_tauscale = FALSE
 )
 
@@ -63,7 +69,7 @@ pred <- predict(
   pi_pred = p,
   z_pred = z,
   save_tree_directory = tree_dir,
-  type = "sigma2",
+  type = "all",
   n_cores = 1,
   verbose = FALSE
 )
@@ -75,6 +81,14 @@ stopifnot(
   all(pred$sigma2 > 0),
   isTRUE(all.equal(pred$sigma, sqrt(pred$sigma2), check.attributes = FALSE))
 )
+
+stopifnot(identical(dim(pred$mu),dim(fit$mu)),
+          identical(dim(pred$tau),dim(fit$tau)),
+          max(abs(pred$mu-fit$mu))<1e-8,
+          max(abs(pred$tau-fit$tau))<1e-8,
+          max(abs(pred$sigma2-fit$sigma2))<1e-8)
+if(identical(Sys.getenv("BCF_PAIRED_MEAN_UPDATE"),"true"))
+ stopifnot(fit$paired_mean_updates==18,fit$paired_mean_skips==0)
 
 fit_ref <- bcf(
   y = y,
@@ -92,6 +106,7 @@ fit_ref <- bcf(
   no_output = TRUE,
   verbose = FALSE,
   use_muscale = FALSE,
+  paired_mean_update = FALSE,
   use_tauscale = FALSE
 )
 
@@ -159,6 +174,10 @@ fit <- bcf_hetero(
   save_tree_directory = tree_dir,
   verbose = FALSE,
   use_muscale = FALSE,
+  collapsed_mu_scale=identical(Sys.getenv("BCF_COLLAPSED_MU_SCALE"),"true"),
+  joint_mean_every=as.integer(Sys.getenv("BCF_JOINT_MEAN_EVERY","0")),
+  global_mean_update = identical(Sys.getenv("BCF_GLOBAL_MEAN_UPDATE"),"true"),
+  paired_mean_update = identical(Sys.getenv("BCF_PAIRED_MEAN_UPDATE"),"true"),
   use_tauscale = FALSE
 )
 
@@ -200,7 +219,7 @@ pred <- predict(
   pi_pred = p,
   z_pred = z,
   save_tree_directory = tree_dir,
-  type = "sigma2",
+  type = "all",
   n_cores = 1,
   verbose = FALSE
 )
@@ -242,3 +261,13 @@ stopifnot(
 )
 
 cat("hetero-ratio-smoke OK\n")
+
+stopifnot(identical(dim(pred$mu),dim(fit$mu)),
+          identical(dim(pred$tau),dim(fit$tau)),
+          max(abs(pred$mu-fit$mu))<1e-8,
+          max(abs(pred$tau-fit$tau))<1e-8,
+          max(abs(pred$sigma0_2-fit$sigma0_2))<1e-8,
+          max(abs(pred$sigma1_2-fit$sigma1_2))<1e-8)
+if(identical(Sys.getenv("BCF_PAIRED_MEAN_UPDATE"),"true"))
+ stopifnot(fit$paired_mean_updates==18,fit$paired_mean_skips==0)
+cat("MEAN_TREE_REPLAY_PASS\n")

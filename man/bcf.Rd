@@ -41,7 +41,15 @@ bcf(
   x_variance = x_control,
   vartree = NULL,
   variance_model = "homoscedastic",
-  standardize = TRUE
+  standardize = TRUE,
+  paired_mean_update = FALSE,
+  global_mean_update = FALSE,
+  joint_mean_every = 0L,
+  collapsed_mu_scale = FALSE,
+  mean_split_change = FALSE,
+  variance_split_change = FALSE,
+  joint_variance_every = 0L,
+  paired_variance_every = 0L
 )
 }
 \arguments{
@@ -117,6 +125,22 @@ or "both" are HIGHLY recommended with observational data.}
 
 \item{variance_model}{Residual variance model: \code{"homoscedastic"},
 \code{"shared"}, or \code{"ratio"}.}
+
+\item{collapsed_mu_scale}{Logical; experimental Cauchy amplitude with fixed Gaussian prognostic leaves, preserving the marginal prognostic forest prior.}
+
+\item{variance_split_change}{Logical; experimental collapsed split change for variance trees, followed immediately by inverse-chi-square leaf draws. Disabled by default.}
+
+\item{mean_split_change}{Logical; experimental collapsed split-rule change at a node with terminal children, followed immediately by Gaussian leaf-coefficient draws. Disabled by default.}
+
+\item{joint_variance_every}{Nonnegative integer; jointly propose baseline and ratio variance scales every this many iterations. Requires the ratio model; zero disables the move.}
+
+\item{paired_variance_every}{Nonnegative integer; propose paired baseline and ratio variance leaves every this many iterations. Requires the ratio model; zero disables the move.}
+
+\item{joint_mean_every}{Nonnegative integer; refresh all mean-tree leaf coefficients jointly every this many iterations in heteroskedastic fits. Zero disables the refresh. The existing conditional prior is preserved.}
+
+\item{global_mean_update}{Logical; jointly refresh the two whole-forest intercept directions in heteroskedastic fits; default FALSE.}
+
+\item{paired_mean_update}{Logical; enable an additional joint Gaussian refresh of prognostic and treatment tree leaves in heteroskedastic fits. Preserves the existing conditional prior and likelihood; default FALSE.}
 
 \item{standardize}{Logical; if \code{TRUE}, center and scale the outcome
 before fitting and transform posterior draws back to the original scale.
