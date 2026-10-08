@@ -10,6 +10,7 @@
 bool bd(tree& x, xinfo& xi, pinfo& pi, RNG& gen, size_t numslaves);
 #else
 bool bd(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen, Logger logger);
+bool mean_split_change(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen);
 #endif
 
 #endif

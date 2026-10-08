@@ -53,6 +53,9 @@ Rcpp::loadModule(module = "TreeSamples", TRUE)
 .get_do_type = function(n_cores, log_file){
   if(n_cores>1){
     cl <- parallel::makeCluster(n_cores, outfile=log_file)
+    # Workers don't inherit an in-script .libPaths(), so without this they can
+    # load another installed bcf (e.g. CRAN) that has no var_trees support.
+    parallel::clusterCall(cl, function(lib_paths) .libPaths(lib_paths), .libPaths())
 
     message(sprintf("Running in parallel, saving BCF logs to %s \n", log_file))
     doParallel::registerDoParallel(cl)
@@ -181,6 +184,26 @@ Rcpp::loadModule(module = "TreeSamples", TRUE)
 #' @param vartree Optional list of scalar product-of-trees variance prior parameters.
 #' @param variance_model Residual variance model: \code{"homoscedastic"},
 #' \code{"shared"}, or \code{"ratio"}.
+#' @param collapsed_mu_scale Logical; experimental Cauchy amplitude with fixed
+#'   Gaussian prognostic leaves, preserving the marginal prognostic forest prior.
+#' @param variance_split_change Logical; add a collapsed variance-tree split
+#'   change followed immediately by inverse-chi-square leaf draws.
+#' @param mean_split_change Logical; add a collapsed split-rule change at a
+#'   node with terminal children, followed immediately by leaf-coefficient draws.
+#' @param joint_mean_every Nonnegative integer; refresh all mean-tree leaf
+#'   coefficients jointly every this many iterations in heteroskedastic fits.
+#'   Zero disables the refresh. The existing conditional prior is preserved.
+#' @param global_mean_update Logical; jointly refresh the two whole-forest
+#'   intercept directions in heteroskedastic fits; default FALSE.
+#' @param paired_mean_update Logical; enable an additional joint Gaussian
+#'   refresh of prognostic and treatment tree leaves in heteroskedastic fits.
+#'   Preserves the existing conditional prior and likelihood; default FALSE.
+#' @param joint_variance_every Nonnegative integer; jointly propose baseline and
+#'   ratio variance scales every this many iterations. Requires the ratio model;
+#'   zero disables the move.
+#' @param paired_variance_every Nonnegative integer; propose paired baseline and
+#'   ratio variance leaves every this many iterations. Requires the ratio model;
+#'   zero disables the move.
 #' @param standardize Logical; if \code{TRUE}, center and scale the outcome
 #' before fitting and transform posterior draws back to the original scale.
 #' Set to \code{FALSE} for prior-predictive calibration with fixed scales.
@@ -291,7 +314,7 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                 nu = 3, lambda = NULL, sigq = .9, sighat = NULL,
                 include_pi = "control", use_muscale=TRUE, use_tauscale=TRUE, verbose=TRUE,
                 x_variance = x_control, vartree = NULL, variance_model = "homoscedastic",
-                standardize = TRUE
+                standardize = TRUE, paired_mean_update = FALSE, global_mean_update = FALSE, joint_mean_every = 0L, collapsed_mu_scale = FALSE, mean_split_change = FALSE, variance_split_change = FALSE, joint_variance_every = 0L, paired_variance_every = 0L
 ) {
 
   
@@ -340,7 +363,17 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
   if (!is.logical(standardize) || length(standardize) != 1L || is.na(standardize)) {
     stop("standardize must be TRUE or FALSE")
   }
+  stopifnot(length(joint_variance_every)==1L,is.finite(joint_variance_every),joint_variance_every>=0,joint_variance_every==as.integer(joint_variance_every))
+  if(joint_variance_every>0 && variance_model!="ratio") stop("Joint variance update requires ratio model")
+  stopifnot(length(paired_variance_every)==1L,is.finite(paired_variance_every),paired_variance_every>=0,paired_variance_every==as.integer(paired_variance_every))
+  if(paired_variance_every>0 && variance_model!="ratio") stop("Paired variance update requires ratio model")
   use_ratio <- variance_model == "ratio"
+  stopifnot(is.logical(collapsed_mu_scale),length(collapsed_mu_scale)==1L,!is.na(collapsed_mu_scale))
+  stopifnot(is.logical(variance_split_change),length(variance_split_change)==1L,!is.na(variance_split_change))
+  stopifnot(is.logical(mean_split_change),length(mean_split_change)==1L,!is.na(mean_split_change))
+  stopifnot(length(joint_mean_every)==1L,is.finite(joint_mean_every),joint_mean_every>=0,joint_mean_every==as.integer(joint_mean_every))
+  stopifnot(is.logical(global_mean_update),length(global_mean_update)==1L,!is.na(global_mean_update))
+  stopifnot(is.logical(paired_mean_update), length(paired_mean_update)==1L, !is.na(paired_mean_update))
   use_hetero <- variance_model %in% c("shared", "ratio") || !is.null(vartree)
   if(use_hetero && variance_model == "homoscedastic") variance_model <- "shared"
 
@@ -466,7 +499,13 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                                  var_alpha = vartree_params$base,
                                  var_beta = vartree_params$power,
                                  use_hetero = use_hetero,
-                                 use_ratio = use_ratio)
+                                 use_ratio = use_ratio,
+                                 use_paired_mean_update = paired_mean_update,
+                                 use_global_mean_update = global_mean_update,
+                                 joint_mean_every = as.integer(joint_mean_every),
+                                 collapsed_mu_scale = collapsed_mu_scale,
+                                 use_mean_split_change = mean_split_change,
+                                 use_variance_split_change = variance_split_change, joint_variance_every = as.integer(joint_variance_every),paired_variance_every=as.integer(paired_variance_every))
     
     if(verbose) cat("bcfoverparRcppClean returned to R\n")
 
@@ -496,6 +535,26 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
          muy = muy,
          mu  = mu_post,
          tau = tau_post,
+         collapsed_mu_scale = collapsed_mu_scale,
+         joint_mean_every = joint_mean_every,
+         mean_split_change = mean_split_change,
+         paired_variance_every = paired_variance_every,
+         joint_variance_every = joint_variance_every,
+         variance_split_change = variance_split_change,
+         paired_variance_attempts = fitbcf$paired_variance_attempts,
+         paired_variance_accepts = fitbcf$paired_variance_accepts,
+         joint_variance_attempts = fitbcf$joint_variance_attempts,
+         joint_variance_accepts = fitbcf$joint_variance_accepts,
+         variance_split_change_attempts = fitbcf$variance_split_change_attempts,
+         variance_split_change_accepts = fitbcf$variance_split_change_accepts,
+         mean_split_change_attempts = fitbcf$mean_split_change_attempts,
+         mean_split_change_accepts = fitbcf$mean_split_change_accepts,
+         joint_mean_updates = fitbcf$joint_mean_updates,
+         joint_mean_max_leaves = fitbcf$joint_mean_max_leaves,
+         global_mean_update = global_mean_update,
+         paired_mean_update = paired_mean_update,
+         paired_mean_updates = fitbcf$paired_mean_updates,
+         paired_mean_skips = fitbcf$paired_mean_skips,
          mu_scale = fitbcf$msd,
          tau_scale = fitbcf$bsd,
          b0 = fitbcf$b0,
@@ -625,6 +684,26 @@ bcf <- function(y, z, x_control, x_moderate=x_control, pihat, w = NULL,
                  vartree = chain_out[[1]]$vartree,
                  random_seed = chain_out[[1]]$random_seed,
                  coda_chains = coda::as.mcmc.list(chain_list),
+                 collapsed_mu_scale = collapsed_mu_scale,
+         joint_mean_every = joint_mean_every,
+         mean_split_change = mean_split_change,
+         paired_variance_every = paired_variance_every,
+         joint_variance_every = joint_variance_every,
+         variance_split_change = variance_split_change,
+                 paired_variance_attempts = sum(vapply(chain_out,function(x)x$paired_variance_attempts,numeric(1))),
+                 paired_variance_accepts = sum(vapply(chain_out,function(x)x$paired_variance_accepts,numeric(1))),
+                 joint_variance_attempts = sum(vapply(chain_out,function(x)x$joint_variance_attempts,numeric(1))),
+                 joint_variance_accepts = sum(vapply(chain_out,function(x)x$joint_variance_accepts,numeric(1))),
+                 variance_split_change_attempts = sum(vapply(chain_out,function(x)x$variance_split_change_attempts,numeric(1))),
+                 variance_split_change_accepts = sum(vapply(chain_out,function(x)x$variance_split_change_accepts,numeric(1))),
+                 mean_split_change_attempts = sum(vapply(chain_out,function(x)x$mean_split_change_attempts,numeric(1))),
+                 mean_split_change_accepts = sum(vapply(chain_out,function(x)x$mean_split_change_accepts,numeric(1))),
+                 joint_mean_updates = sum(vapply(chain_out,function(x)x$joint_mean_updates,numeric(1))),
+                 joint_mean_max_leaves = max(vapply(chain_out,function(x)x$joint_mean_max_leaves,numeric(1))),
+                 global_mean_update = global_mean_update,
+                 paired_mean_update = paired_mean_update,
+                 paired_mean_updates = sum(vapply(chain_out,function(x)x$paired_mean_updates,numeric(1))),
+                 paired_mean_skips = sum(vapply(chain_out,function(x)x$paired_mean_skips,numeric(1))),
                  raw_chains = chain_out, 
                  has_file_output = has_file_output)
   

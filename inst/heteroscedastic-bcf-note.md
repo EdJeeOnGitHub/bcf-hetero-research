@@ -51,12 +51,17 @@ At each MCMC iteration, the `mu` and `tau` tree updates use observation-specific
 precision:
 
 ```text
-omega_i = 1 / sigma_i^2
+omega_i = w_i / sigma_i^2
 ```
 
 The existing BCF weighted sufficient-statistic path is used for these updates.
 After the mean and treatment trees are updated, the variance trees are updated
-against current squared residuals. In ratio mode, the baseline variance trees
+against current precision-weighted squared residuals, `w_i * (y_i - f_i)^2`.
+BCF's `w` defines the likelihood `y_i ~ N(f_i, sigma_i^2 / w_i)`; it is
+therefore essential to include `w_i` in the variance conditional as well as in
+the mean and scale conditionals. Each observation contributes one likelihood
+degree of freedom to the variance update; `w_i` scales its squared residual.
+In ratio mode, the baseline variance trees
 are informed by both arms using the current treatment-arm ratio, and the ratio
 trees are informed by treated residuals. When tree output is enabled, variance
 trees are serialized alongside the control and moderator trees. Ratio mode also

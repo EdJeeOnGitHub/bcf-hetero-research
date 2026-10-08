@@ -12,8 +12,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // bcfoverparRcppClean
-List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_, NumericVector x_con_, NumericVector x_mod_, List x_con_info_list, List x_mod_info_list, arma::mat random_des, arma::mat random_var, arma::mat random_var_ix, double random_var_df, int burn, int nd, int thin, int ntree_mod, int ntree_con, double lambda, double nu, double con_sd, double mod_sd, double con_alpha, double con_beta, double mod_alpha, double mod_beta, CharacterVector treef_con_name_, CharacterVector treef_mod_name_, CharacterVector treef_var_name_, CharacterVector treef_var_ratio_name_, int status_interval, bool RJ, bool use_mscale, bool use_bscale, bool b_half_normal, double trt_init, bool verbose_sigma, bool no_output, NumericVector x_var_, List x_var_info_list, int ntree_var, double var_lambda, double var_nu, double var_alpha, double var_beta, bool use_hetero, bool use_ratio);
-RcppExport SEXP _bcf_bcfoverparRcppClean(SEXP y_SEXP, SEXP z_SEXP, SEXP w_SEXP, SEXP x_con_SEXP, SEXP x_mod_SEXP, SEXP x_con_info_listSEXP, SEXP x_mod_info_listSEXP, SEXP random_desSEXP, SEXP random_varSEXP, SEXP random_var_ixSEXP, SEXP random_var_dfSEXP, SEXP burnSEXP, SEXP ndSEXP, SEXP thinSEXP, SEXP ntree_modSEXP, SEXP ntree_conSEXP, SEXP lambdaSEXP, SEXP nuSEXP, SEXP con_sdSEXP, SEXP mod_sdSEXP, SEXP con_alphaSEXP, SEXP con_betaSEXP, SEXP mod_alphaSEXP, SEXP mod_betaSEXP, SEXP treef_con_name_SEXP, SEXP treef_mod_name_SEXP, SEXP treef_var_name_SEXP, SEXP treef_var_ratio_name_SEXP, SEXP status_intervalSEXP, SEXP RJSEXP, SEXP use_mscaleSEXP, SEXP use_bscaleSEXP, SEXP b_half_normalSEXP, SEXP trt_initSEXP, SEXP verbose_sigmaSEXP, SEXP no_outputSEXP, SEXP x_var_SEXP, SEXP x_var_info_listSEXP, SEXP ntree_varSEXP, SEXP var_lambdaSEXP, SEXP var_nuSEXP, SEXP var_alphaSEXP, SEXP var_betaSEXP, SEXP use_heteroSEXP, SEXP use_ratioSEXP) {
+List bcfoverparRcppClean(NumericVector y_, NumericVector z_, NumericVector w_, NumericVector x_con_, NumericVector x_mod_, List x_con_info_list, List x_mod_info_list, arma::mat random_des, arma::mat random_var, arma::mat random_var_ix, double random_var_df, int burn, int nd, int thin, int ntree_mod, int ntree_con, double lambda, double nu, double con_sd, double mod_sd, double con_alpha, double con_beta, double mod_alpha, double mod_beta, CharacterVector treef_con_name_, CharacterVector treef_mod_name_, CharacterVector treef_var_name_, CharacterVector treef_var_ratio_name_, int status_interval, bool RJ, bool use_mscale, bool use_bscale, bool b_half_normal, double trt_init, bool verbose_sigma, bool no_output, NumericVector x_var_, List x_var_info_list, int ntree_var, double var_lambda, double var_nu, double var_alpha, double var_beta, bool use_hetero, bool use_ratio, bool use_paired_mean_update, bool use_global_mean_update, int joint_mean_every, bool collapsed_mu_scale, bool use_mean_split_change, bool use_variance_split_change, int joint_variance_every, int paired_variance_every);
+RcppExport SEXP _bcf_bcfoverparRcppClean(SEXP y_SEXP, SEXP z_SEXP, SEXP w_SEXP, SEXP x_con_SEXP, SEXP x_mod_SEXP, SEXP x_con_info_listSEXP, SEXP x_mod_info_listSEXP, SEXP random_desSEXP, SEXP random_varSEXP, SEXP random_var_ixSEXP, SEXP random_var_dfSEXP, SEXP burnSEXP, SEXP ndSEXP, SEXP thinSEXP, SEXP ntree_modSEXP, SEXP ntree_conSEXP, SEXP lambdaSEXP, SEXP nuSEXP, SEXP con_sdSEXP, SEXP mod_sdSEXP, SEXP con_alphaSEXP, SEXP con_betaSEXP, SEXP mod_alphaSEXP, SEXP mod_betaSEXP, SEXP treef_con_name_SEXP, SEXP treef_mod_name_SEXP, SEXP treef_var_name_SEXP, SEXP treef_var_ratio_name_SEXP, SEXP status_intervalSEXP, SEXP RJSEXP, SEXP use_mscaleSEXP, SEXP use_bscaleSEXP, SEXP b_half_normalSEXP, SEXP trt_initSEXP, SEXP verbose_sigmaSEXP, SEXP no_outputSEXP, SEXP x_var_SEXP, SEXP x_var_info_listSEXP, SEXP ntree_varSEXP, SEXP var_lambdaSEXP, SEXP var_nuSEXP, SEXP var_alphaSEXP, SEXP var_betaSEXP, SEXP use_heteroSEXP, SEXP use_ratioSEXP, SEXP use_paired_mean_updateSEXP, SEXP use_global_mean_updateSEXP, SEXP joint_mean_everySEXP, SEXP collapsed_mu_scaleSEXP, SEXP use_mean_split_changeSEXP, SEXP use_variance_split_changeSEXP, SEXP joint_variance_everySEXP, SEXP paired_variance_everySEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -62,7 +62,15 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type var_beta(var_betaSEXP);
     Rcpp::traits::input_parameter< bool >::type use_hetero(use_heteroSEXP);
     Rcpp::traits::input_parameter< bool >::type use_ratio(use_ratioSEXP);
-    rcpp_result_gen = Rcpp::wrap(bcfoverparRcppClean(y_, z_, w_, x_con_, x_mod_, x_con_info_list, x_mod_info_list, random_des, random_var, random_var_ix, random_var_df, burn, nd, thin, ntree_mod, ntree_con, lambda, nu, con_sd, mod_sd, con_alpha, con_beta, mod_alpha, mod_beta, treef_con_name_, treef_mod_name_, treef_var_name_, treef_var_ratio_name_, status_interval, RJ, use_mscale, use_bscale, b_half_normal, trt_init, verbose_sigma, no_output, x_var_, x_var_info_list, ntree_var, var_lambda, var_nu, var_alpha, var_beta, use_hetero, use_ratio));
+    Rcpp::traits::input_parameter< bool >::type use_paired_mean_update(use_paired_mean_updateSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_global_mean_update(use_global_mean_updateSEXP);
+    Rcpp::traits::input_parameter< int >::type joint_mean_every(joint_mean_everySEXP);
+    Rcpp::traits::input_parameter< bool >::type collapsed_mu_scale(collapsed_mu_scaleSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_mean_split_change(use_mean_split_changeSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_variance_split_change(use_variance_split_changeSEXP);
+    Rcpp::traits::input_parameter< int >::type joint_variance_every(joint_variance_everySEXP);
+    Rcpp::traits::input_parameter< int >::type paired_variance_every(paired_variance_everySEXP);
+    rcpp_result_gen = Rcpp::wrap(bcfoverparRcppClean(y_, z_, w_, x_con_, x_mod_, x_con_info_list, x_mod_info_list, random_des, random_var, random_var_ix, random_var_df, burn, nd, thin, ntree_mod, ntree_con, lambda, nu, con_sd, mod_sd, con_alpha, con_beta, mod_alpha, mod_beta, treef_con_name_, treef_mod_name_, treef_var_name_, treef_var_ratio_name_, status_interval, RJ, use_mscale, use_bscale, b_half_normal, trt_init, verbose_sigma, no_output, x_var_, x_var_info_list, ntree_var, var_lambda, var_nu, var_alpha, var_beta, use_hetero, use_ratio, use_paired_mean_update, use_global_mean_update, joint_mean_every, collapsed_mu_scale, use_mean_split_change, use_variance_split_change, joint_variance_every, paired_variance_every));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -105,7 +113,7 @@ END_RCPP
 RcppExport SEXP _rcpp_module_boot_TreeSamples();
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_bcf_bcfoverparRcppClean", (DL_FUNC) &_bcf_bcfoverparRcppClean, 45},
+    {"_bcf_bcfoverparRcppClean", (DL_FUNC) &_bcf_bcfoverparRcppClean, 53},
     {"_bcf_bcfSbcPriorDraw", (DL_FUNC) &_bcf_bcfSbcPriorDraw, 25},
     {"_rcpp_module_boot_TreeSamples", (DL_FUNC) &_rcpp_module_boot_TreeSamples, 0},
     {NULL, NULL, 0}

@@ -37,4 +37,7 @@ void vardrmu(tree& t, xinfo& xi, dinfo& di,
 bool varbd(tree& x, xinfo& xi, dinfo& di, pinfo& pi,
            double nu, double lambda, RNG& gen);
 
+bool variance_split_change(tree& x, xinfo& xi, dinfo& di, pinfo& pi,
+                           double nu, double lambda, RNG& gen);
+
 #endif
