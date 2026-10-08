@@ -73,19 +73,61 @@ credential or absolute machine-path patterns matched. The built source archive
 was scanned separately with no matches. CSV outputs contain aggregate synthetic
 calibration summaries; the RDS contains vignette build metadata. Upstream
 authors, citation, GPL-3 declaration and Thomas Wiemann attribution are retained.
-This is a bounded review of locally available history, not a guarantee about
-remote refs that cannot be fetched. Do not change repository visibility until
-remote-only history has also been reviewed.
+Remote publication review on 2026-10-08 fetched all fork branches and tags,
+plus PR heads. The default branch was `master` at `54aba577`; the release
+branch matched prepared commit `ca23fd1`. No newer default-branch work existed.
+Both open PRs were integrated with their original commits and authors: #4
+for parallel prediction worker library paths and #5 for the macOS FLIBS
+installation workaround. No sampler source was changed during publication.
+All optional sampler defaults remain disabled. The targeting-cash campaign
+configuration remains joint mean every 5 iterations, variance split changes,
+joint/paired variance every iteration, and 4000 burn-in/2000 retained draws.
 
-Remote publication is pending. The current environment cannot resolve GitHub
-or CRAN hostnames, its default SSH configuration fails a permissions check,
-and GitHub CLI reports an invalid authentication token. Bypassing the local SSH
-configuration still fails DNS resolution. Remote branches, history, protection
-rules and tag existence therefore remain unverified.
+The refreshed reachable-history scan covered 172 unique file blobs before
+publication documentation edits, with no credential or personal machine-path
+matches. Content review covered the historical file inventory, branch diffs,
+implementation notes, synthetic vignette generators, aggregate calibration CSV
+schemas and provenance, vignette RDS metadata, and calibration graphics.
+No participant datasets, compiled executables or private operational notes
+were identified. Upstream authors, citation, GPL-3 and Thomas Wiemann's
+bayesm.HART attribution are preserved.
 
-Before publication: fetch all remote branches/tags, reconcile newer work,
-review remote-only history, verify the release tag is unused, push through the
-repository's normal review process, verify remote SHAs, and install the tagged
-source with authenticated access in a fresh R library. No release tag is
-created until the remote tag check succeeds. Visibility and any rename remain
-separate owner actions; anonymous access/install must be checked afterwards.
+GitHub review covered open and closed issues, issue comments, PR bodies,
+inline comments, reviews, releases, Actions runs and artifacts. There were
+no Actions runs, artifacts, releases, inline comments or PR reviews. Discussions
+and Pages were disabled; the enabled wiki had no accessible Git repository.
+Issue content contains technical reproduction details and campaign-relative
+paths, not participant data or personal absolute machine paths. The repository
+had no branch protection or repository rulesets. Publication uses a release
+PR and merge without force pushes. The requested name was available and the
+existing repository was renamed to `EdJeeOnGitHub/bcf-hetero-research`; the
+`hetero` remote and README installation command were updated. `origin` and its
+disabled push URL are retained.
+
+Final validation results are recorded below before tagging. Authenticated
+and anonymous tagged installations and remote SHA verification are performed
+as publication gates; their outcome is reported with the public handoff.
+
+### Final source validation
+
+Publication validation on 2026-10-08 rebuilt and installed the reconciled
+source in a fresh library using native R 4.6.1 and GCC 16.2.1. Declared
+dependencies were available, including RcppArmadillo 15.6.0.1 and
+RcppParallel 6.2.1. Version, selected installation path and all four disabled
+optional defaults were asserted. All five required sampler checks passed:
+mean conditionals with joint mean every 5, joint variance reference, paired
+variance reference, variance split-change reference and combined replay.
+Heteroscedastic smoke, weighted variance, mean-scale prior, mean split-change
+and joint SBC smoke also passed. Parallel prediction with two workers passed
+saved-tree replay for both shared and ratio models when the fresh library was
+selected in-script and library environment overrides were removed.
+
+`R CMD check --no-manual --no-build-vignettes` with
+`_R_CHECK_FORCE_SUGGESTS_=false`, version 2.0.2.9011 and joint mean every 5
+finished with **Status: OK**, including all executable tests. The five missing
+suggestions remain testthat, spelling, latex2exp, rpart.plot and partykit.
+Full suggestions, spelling, PDF manuals and vignette rebuilding remain
+unverified; these synthetic checks do not certify real-data convergence.
+An initial standalone reference compile encountered the sandbox's read-only
+compiler cache; rerunning with `CCACHE_DISABLE=1` passed without source edits.
+No sampler files differ from the prepared, archive-validated commit.

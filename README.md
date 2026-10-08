@@ -8,16 +8,14 @@ It is a development fork, not the CRAN release.
 
 ## Install this fork
 
-Install the tagged source once the release has been pushed:
+Install the tagged research release:
 
 ```r
 install.packages("remotes")
-remotes::install_github("EdJeeOnGitHub/bcf-hetero-private@v2.0.2.9011")
+remotes::install_github("EdJeeOnGitHub/bcf-hetero-research@v2.0.2.9011")
 ```
 
-The repository currently requires access while private. Changing its visibility
-is a separate owner action; installation will become anonymous once public.
-The URL above must be updated if the repository is renamed.
+The public repository supports anonymous installation of this tag.
 
 For a local checkout:
 
