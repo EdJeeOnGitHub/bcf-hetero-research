@@ -151,3 +151,12 @@ if (!require("devtools")) {
 }
 devtools::install_github("jaredsmurray/bcf")
 ```
+
+On macOS without CRAN's gfortran toolchain, the link step fails with
+`ld: library 'emutls_w' not found` because Makeconf points `FLIBS` at the
+missing `/opt/gfortran` (the package itself has no Fortran). Install with
+the override:
+
+```sh
+MAKEFLAGS='FLIBS=' R CMD INSTALL .
+```
